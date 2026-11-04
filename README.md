@@ -17,6 +17,8 @@ PayPal is the spine: every errand state change is a PayPal state change, confirm
 
 Models never move money. Only the orchestrator calls PayPal, from an approved contract, and `assertCaptureAllowed` refuses any capture above the contract total.
 
+On the phone, the agent can only say what the shop agreed to. Each call carries a signed token naming its errand, shop and dialled number; the agent's tools send it in a header the model cannot see or change. The API takes the errand and the payout number from the token, so a confused or manipulated agent cannot confirm a deal on another errand or redirect a payout. The pickup code goes to the buyer only; the agent never knows it.
+
 ## Status
 
 | Part | State |
@@ -25,9 +27,10 @@ Models never move money. Only the orchestrator calls PayPal, from an approved co
 | `packages/paypal`: holds, saved PayPal, captures, voids, refunds, payouts, webhook verification | Done, tested against a fake PayPal |
 | `packages/orchestrator`: the money service (hold, deposit, pickup, cancellations), driven by PayPal webhooks | Done, tested against a fake PayPal |
 | `packages/db`: Postgres schema and migrations, the errand repo (append-only money rows, an advisory lock per errand across processes), the webhook event store | Done, tested on PGlite and Postgres 16 |
-| `apps/api`: PayPal webhook endpoint (verified, de-duplicated, retried if a handler fails) feeding the orchestrator, on Postgres when `DATABASE_URL` is set | Done, tested |
+| `packages/voice`: the ElevenLabs caller (prompt with AI and recording disclosure, `record_quote` and `confirm_order` tools), per-call tokens, outbound calls, signed post-call transcripts | Done, tested against a fake ElevenLabs |
+| `apps/api`: PayPal and ElevenLabs webhooks (verified, de-duplicated, retried if a handler fails), the voice agent's tools, on Postgres when `DATABASE_URL` is set | Done, tested |
 | `scripts/day-one`: checks against the real sandbox and services | Ready to run once credentials are in `.env` |
-| Render Workflows wrapper, voice calls (ElevenLabs), agents (Claude), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL | Next |
+| Render Workflows (the outreach rounds), agents (Claude), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL, texts (Twilio) | Next |
 
 ## Repository
 
@@ -35,9 +38,11 @@ Models never move money. Only the orchestrator calls PayPal, from an approved co
 packages/core      errand lifecycle, money rules, contract schema (no I/O)
 packages/paypal    PayPal REST client and calls
 packages/orchestrator  the only code that moves money; errands advance on PayPal webhooks
+packages/voice     the ElevenLabs caller, its tools, call tokens and transcripts
 packages/db        Postgres: migrations, errand repo, webhook event store
 apps/api           Fastify API: webhooks and live updates
 scripts/day-one    checks against the sandbox and sponsor services
+scripts/voice      create the ElevenLabs agent from code; place a test call
 docs/              day-one checks guide
 ```
 
@@ -68,6 +73,18 @@ Day-one checks (copy `.env.example` to `.env` first; see [docs/day-one-checks.md
 ```bash
 npm run check:day-one
 ```
+
+Voice, once the API is deployed and `PUBLIC_API_URL` points at it: create or update the agent and its tools, then call your own phone.
+
+```bash
+npm run voice:setup
+```
+
+```bash
+npm run voice:call -- --to=+14155550123
+```
+
+Only call numbers whose owners have agreed to a call from an AI. The agent says it is an AI and that the call is recorded in its first sentence, and never leaves voicemail.
 
 ## License
 

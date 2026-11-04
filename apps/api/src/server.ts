@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { parseWebhookEvent, type HeaderBag, type WebhookEvent } from '@legwork/paypal';
 import type { EventStore } from './events';
+import { registerElevenLabsWebhook, registerVoiceTools, type VoiceDeps } from './voice';
 
 export interface ServerDeps {
   /** Checks a PayPal delivery's signature (verifyWebhookSignature bound to the client and webhook id). */
@@ -8,6 +9,8 @@ export interface ServerDeps {
   events: EventStore;
   /** Runs after the 200 is sent; failures are logged, and PayPal's own retries cover lost deliveries. */
   onPayPalEvent: (event: WebhookEvent) => Promise<void>;
+  /** The voice agent's tools and ElevenLabs' post-call webhook; off until ElevenLabs is configured. */
+  voice?: VoiceDeps;
   logger?: boolean;
 }
 
@@ -15,6 +18,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: deps.logger ?? false, bodyLimit: 1_048_576 });
 
   app.get('/health', async () => ({ ok: true }));
+
+  // The voice agent's tools post ordinary JSON; their auth is the per-call token header.
+  if (deps.voice) registerVoiceTools(app, deps.voice);
 
   // Webhook routes need the body exactly as sent, so they parse JSON as a raw string.
   app.register(async (hooks) => {
@@ -52,6 +58,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       }
       return reply.code(200).send({ ok: true, duplicate: !fresh });
     });
+
+    if (deps.voice) registerElevenLabsWebhook(hooks, deps.voice, deps.events);
   });
 
   return app;

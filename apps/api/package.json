@@ -12,6 +12,7 @@
     "@legwork/db": "*",
     "@legwork/orchestrator": "*",
     "@legwork/paypal": "*",
+    "@legwork/voice": "*",
     "fastify": "^5.12.8",
     "pg": "^8.23.1"
   }

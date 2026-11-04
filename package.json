@@ -15,7 +15,9 @@
     "test": "vitest run",
     "dev:api": "tsx watch apps/api/src/main.ts",
     "start:api": "tsx apps/api/src/main.ts",
-    "check:day-one": "tsx scripts/day-one/index.ts"
+    "check:day-one": "tsx scripts/day-one/index.ts",
+    "voice:setup": "tsx scripts/voice/setup-agent.ts",
+    "voice:call": "tsx scripts/voice/call.ts"
   },
   "devDependencies": {
     "@channel3/sdk": "^4.6.0",
