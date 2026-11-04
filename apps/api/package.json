@@ -1,0 +1,15 @@
+{
+  "name": "@legwork/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Legwork API: webhooks from PayPal, ElevenLabs and Twilio, and live updates to the web app.",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "dependencies": {
+    "@legwork/core": "*",
+    "@legwork/paypal": "*",
+    "fastify": "^5.12.8"
+  }
+}

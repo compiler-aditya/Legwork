@@ -1,0 +1,38 @@
+# Render Blueprint. The web app and the Workflows service are added as they land.
+services:
+  - type: web
+    name: legwork-api
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm run start:api
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: legwork-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: legwork-kv
+          property: connectionString
+
+  - type: keyvalue
+    name: legwork-kv
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: legwork-db
+    plan: basic-256mb

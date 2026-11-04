@@ -1,0 +1,13 @@
+{
+  "name": "@legwork/paypal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PayPal REST calls Legwork uses: holds, captures, voids, refunds, payouts, saved PayPal and webhook verification.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@legwork/core": "*"
+  }
+}

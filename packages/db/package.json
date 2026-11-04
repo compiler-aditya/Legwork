@@ -1,0 +1,10 @@
+{
+  "name": "@legwork/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Postgres schema for errands, contracts, money steps and webhook events.",
+  "files": [
+    "migrations"
+  ]
+}

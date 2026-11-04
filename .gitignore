@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+coverage/
+*.log
+.DS_Store
+
+# Secrets stay local. Copy .env.example to .env and fill it in.
+.env
+.env.*
+!.env.example
+
+# Day-one check runs write here; the summary is committed by hand when useful.
+.day-one/
