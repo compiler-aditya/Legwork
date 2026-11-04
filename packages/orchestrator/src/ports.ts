@@ -53,6 +53,8 @@ export interface ErrandRepo {
   appendTransition(t: Transition): Promise<void>;
   appendMoneyStep(step: MoneyStep): Promise<void>;
   markMoneyStep(requestId: string, patch: Pick<MoneyStep, 'status'> & { paypalId?: string }): Promise<void>;
+  /** Runs fn while no other process works on this errand. Optional: memory repos rely on the in-process queue. */
+  withLock?<T>(errandId: string, fn: () => Promise<T>): Promise<T>;
 }
 
 export class MemoryErrandRepo implements ErrandRepo {

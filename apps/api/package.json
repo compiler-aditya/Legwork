@@ -9,8 +9,10 @@
   },
   "dependencies": {
     "@legwork/core": "*",
+    "@legwork/db": "*",
     "@legwork/orchestrator": "*",
     "@legwork/paypal": "*",
-    "fastify": "^5.12.8"
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1"
   }
 }

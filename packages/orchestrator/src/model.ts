@@ -34,9 +34,16 @@ export interface Contract {
 
 export type PayoutStatus = 'sent' | 'SUCCEEDED' | 'UNCLAIMED' | 'CANCELED' | 'RETURNED' | 'FAILED' | 'BLOCKED' | 'DENIED';
 
+export interface ErrandRequest {
+  kind: 'item' | 'custom_order';
+  /** What the buyer asked for, in their words. */
+  text: string;
+}
+
 export interface Errand {
   id: string;
   userId: string;
+  request: ErrandRequest;
   state: ErrandState;
   /** The buyer's maximum; the size of the hold. */
   budgetMax: Money;

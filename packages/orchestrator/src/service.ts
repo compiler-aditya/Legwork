@@ -16,7 +16,7 @@ import {
   type MoneyStep as StepName,
 } from '@legwork/core';
 import { approveLink, authorizationOf, type WebhookEvent } from '@legwork/paypal';
-import type { Contract, Deal, Errand, MoneyKind, PayoutStatus } from './model';
+import type { Contract, Deal, Errand, ErrandRequest, MoneyKind, PayoutStatus } from './model';
 import type { ErrandRepo, PaymentsPort } from './ports';
 
 export interface ErrandMoneyOptions {
@@ -55,8 +55,9 @@ const PAYOUT_EVENTS: Record<string, PayoutStatus> = {
  *   3. calls PayPal with an idempotency key derived from the errand and step,
  *   4. waits for PayPal's verified webhook before the errand moves on.
  *
- * Calls for one errand run one at a time (an in-process lock). With several
- * API instances the Postgres repo takes a row lock on the errand instead.
+ * Calls for one errand run one at a time: an in-process queue, plus the
+ * repo's lock when it has one (the Postgres repo takes an advisory lock, so
+ * several API instances and workflow workers can share errands).
  */
 export class ErrandMoney {
   private readonly payments: PaymentsPort;
@@ -74,12 +75,13 @@ export class ErrandMoney {
 
   // ---- errand set-up -------------------------------------------------------
 
-  async createErrand(input: { id: string; userId: string; budgetMax: Money }): Promise<Errand> {
+  async createErrand(input: { id: string; userId: string; request: ErrandRequest; budgetMax: Money }): Promise<Errand> {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(input.id)) throw new ErrandMoneyError(`Errand ids must be 1-40 letters, digits, _ or -: ${input.id}`);
     if (await this.repo.get(input.id)) throw new ErrandMoneyError(`Errand ${input.id} already exists`);
     const errand: Errand = {
       id: input.id,
       userId: input.userId,
+      request: input.request,
       state: 'requested',
       budgetMax: input.budgetMax,
       captures: {},
@@ -406,11 +408,12 @@ export class ErrandMoney {
 
   private async locked<T>(errandId: string, fn: (errand: Errand) => Promise<T>): Promise<T> {
     const previous = this.locks.get(errandId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(async () => {
+    const body = async () => {
       const errand = await this.repo.get(errandId);
       if (!errand) throw new ErrandMoneyError(`No errand ${errandId}`);
       return fn(errand);
-    });
+    };
+    const run = previous.catch(() => undefined).then(() => (this.repo.withLock ? this.repo.withLock(errandId, body) : body()));
     this.locks.set(errandId, run);
     try {
       return await run;

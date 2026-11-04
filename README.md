@@ -24,8 +24,8 @@ Models never move money. Only the orchestrator calls PayPal, from an approved co
 | `packages/core`: errand state machine, money rules, contracts, idempotency ids | Done, tested |
 | `packages/paypal`: holds, saved PayPal, captures, voids, refunds, payouts, webhook verification | Done, tested against a fake PayPal |
 | `packages/orchestrator`: the money service (hold, deposit, pickup, cancellations), driven by PayPal webhooks | Done, tested against a fake PayPal |
-| `apps/api`: PayPal webhook endpoint (verified, de-duplicated) feeding the orchestrator | Done, tested |
-| `packages/db`: Postgres schema with append-only money rows | Written; the Postgres repo is next |
+| `packages/db`: Postgres schema and migrations, the errand repo (append-only money rows, an advisory lock per errand across processes), the webhook event store | Done, tested on PGlite and Postgres 16 |
+| `apps/api`: PayPal webhook endpoint (verified, de-duplicated, retried if a handler fails) feeding the orchestrator, on Postgres when `DATABASE_URL` is set | Done, tested |
 | `scripts/day-one`: checks against the real sandbox and services | Ready to run once credentials are in `.env` |
 | Render Workflows wrapper, voice calls (ElevenLabs), agents (Claude), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL | Next |
 
@@ -35,7 +35,7 @@ Models never move money. Only the orchestrator calls PayPal, from an approved co
 packages/core      errand lifecycle, money rules, contract schema (no I/O)
 packages/paypal    PayPal REST client and calls
 packages/orchestrator  the only code that moves money; errands advance on PayPal webhooks
-packages/db        Postgres migrations
+packages/db        Postgres: migrations, errand repo, webhook event store
 apps/api           Fastify API: webhooks and live updates
 scripts/day-one    checks against the sandbox and sponsor services
 docs/              day-one checks guide
@@ -55,6 +55,12 @@ npm test
 
 ```bash
 npm run typecheck
+```
+
+The database tests run on PGlite by default. To run them on a real Postgres as well (each run uses a throwaway schema):
+
+```bash
+TEST_DATABASE_URL=postgresql://user@localhost:5432/postgres npm test
 ```
 
 Day-one checks (copy `.env.example` to `.env` first; see [docs/day-one-checks.md](docs/day-one-checks.md)):

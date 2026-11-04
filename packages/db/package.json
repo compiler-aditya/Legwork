@@ -3,8 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Postgres schema for errands, contracts, money steps and webhook events.",
+  "description": "Postgres for Legwork: schema migrations, the errand repo the orchestrator writes through, and the webhook event store.",
   "files": [
-    "migrations"
-  ]
+    "migrations",
+    "src"
+  ],
+  "dependencies": {
+    "@legwork/core": "*",
+    "@legwork/orchestrator": "*",
+    "pg": "^8.23.1"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

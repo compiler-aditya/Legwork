@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { usd } from '@legwork/core';
 import { ErrandMoney, MemoryErrandRepo, type Deal } from '../src';
-import { FakePayments, webhooks } from './fake-payments';
+import { FakePayments, webhooks } from '../src/testing';
 
 const ERRAND = 'err_tap1';
 const hardwareDeal = (over: Partial<Deal> = {}): Deal => ({
@@ -27,7 +27,7 @@ beforeEach(() => {
 
 /** Request -> hold confirmed -> quotes -> confirming, the part every test shares. */
 async function upToConfirming() {
-  await money.createErrand({ id: ERRAND, userId: 'usr_sam', budgetMax: usd(4000) });
+  await money.createErrand({ id: ERRAND, userId: 'usr_sam', request: { kind: 'item', text: 'Moen 1222 cartridge for my shower' }, budgetMax: usd(4000) });
   await money.advance(ERRAND, 'PLAN_READY', 'planner');
   const { approveUrl } = await money.requestHold(ERRAND, {
     returnUrl: 'https://legwork.test/r',

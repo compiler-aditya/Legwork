@@ -39,6 +39,25 @@ describe('POST /webhooks/paypal', () => {
     expect(received).toHaveLength(1);
   });
 
+  it('handles a redelivery when the first handler failed', async () => {
+    let attempts = 0;
+    const app = buildServer({
+      verifyPayPal: async () => true,
+      events: new MemoryEventStore(),
+      onPayPalEvent: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('database blip');
+      },
+    });
+    const post = () => app.inject({ method: 'POST', url: '/webhooks/paypal', payload: rawBody, headers: { 'content-type': 'application/json' } });
+    expect((await post()).json()).toEqual({ ok: true, duplicate: false });
+    await vi.waitFor(() => expect(attempts).toBe(1));
+    expect((await post()).json()).toEqual({ ok: true, duplicate: false });
+    await vi.waitFor(() => expect(attempts).toBe(2));
+    await new Promise((r) => setImmediate(r));
+    expect((await post()).json()).toEqual({ ok: true, duplicate: true });
+  });
+
   it('rejects a delivery whose signature fails', async () => {
     const { received, post } = setup(false);
     const res = await post();

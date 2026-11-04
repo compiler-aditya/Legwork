@@ -1,7 +1,7 @@
 import type { CaptureInput, CreatePayoutInput, HoldOrderInput, Order, WebhookEvent } from '@legwork/paypal';
 import type { Money } from '@legwork/core';
 import { toPayPal } from '@legwork/core';
-import type { PaymentsPort } from '../src/ports';
+import type { PaymentsPort } from './ports';
 
 export interface Call {
   method: string;

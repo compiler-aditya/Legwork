@@ -39,13 +39,18 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
         return reply.code(400).send({ ok: false, error: 'event' });
       }
 
-      const isNew = await deps.events.recordOnce('paypal', event);
-      if (isNew) {
+      // A copy whose handler never finished is handled again; the orchestrator
+      // ignores repeats, so two copies running at once is safe.
+      const fresh = await deps.events.claim('paypal', event);
+      if (fresh) {
         setImmediate(() => {
-          deps.onPayPalEvent(event).catch((err: unknown) => req.log.error({ err, eventId: event.id }, 'PayPal event handler failed'));
+          deps
+            .onPayPalEvent(event)
+            .then(() => deps.events.markProcessed('paypal', event.id))
+            .catch((err: unknown) => req.log.error({ err, eventId: event.id }, 'PayPal event handler failed; the next delivery retries it'));
         });
       }
-      return reply.code(200).send({ ok: true, duplicate: !isNew });
+      return reply.code(200).send({ ok: true, duplicate: !fresh });
     });
   });
 
