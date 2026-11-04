@@ -61,6 +61,10 @@ export interface HoldOrderInput {
  * Step 1 of an errand: an AUTHORIZE order for the buyer's maximum. The buyer
  * approves it in PayPal (JS SDK v6 session or the approve link), then the
  * server calls authorizeOrder.
+ *
+ * custom_id carries the errand id onto the authorization and captures, so a
+ * webhook can be routed to its errand even if it arrives before our own call
+ * returns.
  */
 export function createHoldOrder(client: PayPalClient, input: HoldOrderInput, requestId: string): Promise<Order> {
   return client.request<Order>('POST', '/v2/checkout/orders', {
@@ -71,6 +75,7 @@ export function createHoldOrder(client: PayPalClient, input: HoldOrderInput, req
       purchase_units: [
         {
           reference_id: input.referenceId,
+          custom_id: input.referenceId,
           description: input.description.slice(0, 127),
           amount: toPayPal(input.amount),
         },
@@ -122,6 +127,7 @@ export function createVaultedHold(client: PayPalClient, input: VaultedHoldInput,
       purchase_units: [
         {
           reference_id: input.referenceId,
+          custom_id: input.referenceId,
           description: input.description.slice(0, 127),
           amount: toPayPal(input.amount),
         },

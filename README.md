@@ -23,16 +23,18 @@ Models never move money. Only the orchestrator calls PayPal, from an approved co
 | --- | --- |
 | `packages/core`: errand state machine, money rules, contracts, idempotency ids | Done, tested |
 | `packages/paypal`: holds, saved PayPal, captures, voids, refunds, payouts, webhook verification | Done, tested against a fake PayPal |
-| `apps/api`: PayPal webhook endpoint (verified, de-duplicated) | Done, tested |
-| `packages/db`: Postgres schema with append-only money rows | Written |
+| `packages/orchestrator`: the money service (hold, deposit, pickup, cancellations), driven by PayPal webhooks | Done, tested against a fake PayPal |
+| `apps/api`: PayPal webhook endpoint (verified, de-duplicated) feeding the orchestrator | Done, tested |
+| `packages/db`: Postgres schema with append-only money rows | Written; the Postgres repo is next |
 | `scripts/day-one`: checks against the real sandbox and services | Ready to run once credentials are in `.env` |
-| Orchestrator (Render Workflows), voice calls (ElevenLabs), agents (Claude), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL | Next |
+| Render Workflows wrapper, voice calls (ElevenLabs), agents (Claude), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL | Next |
 
 ## Repository
 
 ```
 packages/core      errand lifecycle, money rules, contract schema (no I/O)
 packages/paypal    PayPal REST client and calls
+packages/orchestrator  the only code that moves money; errands advance on PayPal webhooks
 packages/db        Postgres migrations
 apps/api           Fastify API: webhooks and live updates
 scripts/day-one    checks against the sandbox and sponsor services

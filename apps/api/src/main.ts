@@ -1,3 +1,4 @@
+import { ErrandMoney, MemoryErrandRepo, paypalPayments } from '@legwork/orchestrator';
 import { PayPalClient, verifyWebhookSignature, type PayPalEnv } from '@legwork/paypal';
 import { MemoryEventStore } from './events';
 import { buildServer } from './server';
@@ -15,14 +16,16 @@ const paypal = new PayPalClient({
 });
 const webhookId = required('PAYPAL_WEBHOOK_ID');
 
-// The Postgres event store and the orchestrator arrive in the next build step;
-// until then events are logged and kept in memory.
+// Errands and events live in memory until the Postgres repo lands.
+const money = new ErrandMoney({ payments: paypalPayments(paypal), repo: new MemoryErrandRepo() });
+
 const app = buildServer({
   logger: true,
   verifyPayPal: (headers, rawBody) => verifyWebhookSignature(paypal, { headers, rawBody, webhookId }),
   events: new MemoryEventStore(),
   onPayPalEvent: async (event) => {
-    app.log.info({ id: event.id, type: event.event_type }, 'PayPal event');
+    const outcome = await money.handlePayPalEvent(event);
+    app.log.info({ id: event.id, type: event.event_type, outcome }, 'PayPal event');
   },
 });
 

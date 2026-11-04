@@ -1,0 +1,14 @@
+{
+  "name": "@legwork/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The only part of Legwork that moves money: drives each errand through PayPal, one webhook-confirmed step at a time.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@legwork/core": "*",
+    "@legwork/paypal": "*"
+  }
+}
