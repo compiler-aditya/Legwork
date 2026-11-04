@@ -1,0 +1,13 @@
+{
+  "name": "@legwork/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Errand state machine, money rules and contract types. No I/O.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}
