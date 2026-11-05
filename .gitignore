@@ -12,3 +12,4 @@ coverage/
 
 # Day-one check runs write here; the summary is committed by hand when useful.
 .day-one/
+.vercel/

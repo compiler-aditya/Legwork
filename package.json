@@ -17,7 +17,8 @@
     "start:api": "tsx apps/api/src/main.ts",
     "check:day-one": "tsx scripts/day-one/index.ts",
     "voice:setup": "tsx scripts/voice/setup-agent.ts",
-    "voice:call": "tsx scripts/voice/call.ts"
+    "voice:call": "tsx scripts/voice/call.ts",
+    "build:vercel": "node scripts/vercel/build.mjs"
   },
   "devDependencies": {
     "@channel3/sdk": "^4.6.0",
@@ -25,6 +26,7 @@
     "@onkernel/sdk": "^0.139.0",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"

@@ -19,6 +19,7 @@ import {
   type Quote,
 } from '@legwork/voice';
 import type { EventStore } from './events';
+import type { Background } from './server';
 
 export interface VoiceDeps {
   /** Signs per-call tokens (CALL_TOKEN_SECRET). */
@@ -40,7 +41,7 @@ interface ToolReply {
 }
 
 /** The agent's tools, called mid-call by ElevenLabs. */
-export function registerVoiceTools(app: FastifyInstance, deps: VoiceDeps): void {
+export function registerVoiceTools(app: FastifyInstance, deps: VoiceDeps, background: Background): void {
   const claimsOf = (headers: Record<string, unknown>): CallClaims | undefined => {
     const raw = headers[CALL_TOKEN_HEADER];
     return verifyCallToken(deps.callTokenSecret, typeof raw === 'string' ? raw : undefined);
@@ -78,15 +79,13 @@ export function registerVoiceTools(app: FastifyInstance, deps: VoiceDeps): void 
       return reply.send({ ok: false, say: `I can't confirm that order: ${result.reason}.` } satisfies ToolReply);
     }
 
-    setImmediate(() => {
-      deps.afterConfirm(claims).catch((err: unknown) => req.log.error({ err, errandId: claims.errandId }, 'deposit after confirm_order failed'));
-    });
+    background(() => deps.afterConfirm(claims).catch((err: unknown) => req.log.error({ err, errandId: claims.errandId }, 'deposit after confirm_order failed')));
     return reply.send(confirmedReply(deal, result.deposit));
   });
 }
 
 /** ElevenLabs' post-call webhook. Register inside a scope that keeps JSON bodies raw, for the signature. */
-export function registerElevenLabsWebhook(app: FastifyInstance, deps: VoiceDeps, events: EventStore): void {
+export function registerElevenLabsWebhook(app: FastifyInstance, deps: VoiceDeps, events: EventStore, background: Background): void {
   app.post('/webhooks/elevenlabs', { bodyLimit: 5 * 1_048_576 }, async (req, reply) => {
     const rawBody = typeof req.body === 'string' ? req.body : '';
     const signature = req.headers['elevenlabs-signature'];
@@ -104,12 +103,12 @@ export function registerElevenLabsWebhook(app: FastifyInstance, deps: VoiceDeps,
     const event = { id: postCallEventId(payload), event_type: String(payload.type), resource: { conversation_id: payload.data?.conversation_id } };
     const fresh = await events.claim('elevenlabs', event);
     if (fresh && report.kind !== 'ignored') {
-      setImmediate(() => {
+      background(() =>
         deps
           .onCallReport(report)
           .then(() => events.markProcessed('elevenlabs', event.id))
-          .catch((err: unknown) => req.log.error({ err, eventId: event.id }, 'post-call handler failed; the next delivery retries it'));
-      });
+          .catch((err: unknown) => req.log.error({ err, eventId: event.id }, 'post-call handler failed; the next delivery retries it')),
+      );
     }
     return reply.send({ ok: true, duplicate: !fresh });
   });

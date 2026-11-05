@@ -74,6 +74,21 @@ Day-one checks (copy `.env.example` to `.env` first; see [docs/day-one-checks.md
 npm run check:day-one
 ```
 
+### Deploy to Vercel (development)
+
+The API runs on Vercel as one Node.js function. `npm run build:vercel` bundles `apps/api/src/vercel.ts` with esbuild into `.vercel/output` (Build Output API); Vercel runs it as the build command. Work after a webhook reply runs under `waitUntil`, so it finishes before the function is frozen.
+
+The API starts with whatever is configured and `GET /health` says what is on. Set these in the Vercel project (Settings, Environment Variables), then redeploy:
+
+| Variable | Turns on |
+| --- | --- |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal calls |
+| `PAYPAL_WEBHOOK_ID` | PayPal webhooks, after registering `<url>/webhooks/paypal` in the PayPal developer dashboard |
+| `DATABASE_URL` (Neon from the Vercel Marketplace sets it, and `DATABASE_URL_UNPOOLED`, which is preferred) | Postgres; without it errands live in one function instance's memory |
+| `ELEVENLABS_WEBHOOK_SECRET`, `CALL_TOKEN_SECRET` | voice tools and the post-call webhook |
+
+`render.yaml` still describes a long-running deployment on Render.
+
 Voice, once the API is deployed and `PUBLIC_API_URL` points at it: create or update the agent and its tools, then call your own phone.
 
 ```bash
