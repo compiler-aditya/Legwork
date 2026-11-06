@@ -55,6 +55,19 @@ export async function paypalChecks(run: Run): Promise<void> {
     return `OAuth token issued by ${pp.baseUrl}`;
   });
 
+  // First, because it needs nobody: its payout webhooks reach the deployment while the hold waits for approval.
+  await run.check(GROUP, 'Cancel an unclaimed payout (shop cancelled after the deposit)', async () => {
+    const receiver = `legwork-unclaimed-${run.id}@example.com`;
+    const item = await payOne(pp, run, 'unclaimed', { recipientType: 'EMAIL', receiver, amount: usd(100), senderItemId: rid('payout-unclaimed') });
+    if (item.transaction_status !== 'UNCLAIMED') {
+      throw new Error(`Expected UNCLAIMED for an address with no account, got ${item.transaction_status ?? 'no status'}`);
+    }
+    // PayPal cancels an item only once its whole batch has finished processing.
+    const batch = await waitForBatch(pp, item.batchId);
+    const cancelled = await cancelPayoutItem(pp, item.payout_item_id);
+    return `item ${item.payout_item_id} was UNCLAIMED; batch ${batch}; item now ${cancelled.transaction_status ?? 'cancelled'}`;
+  });
+
   await run.check(GROUP, 'Budget hold that saves PayPal (one buyer approval)', async () => {
     const order = await createHoldOrder(
       pp,
@@ -132,16 +145,6 @@ export async function paypalChecks(run: Run): Promise<void> {
     return tryWallets(pp, run, 'handle', { recipientType: 'USER_HANDLE', receiver: handle, amount: usd(100), senderItemId: rid('payout-handle') });
   });
 
-  await run.check(GROUP, 'Cancel an unclaimed payout (shop cancelled after the deposit)', async () => {
-    const receiver = `legwork-unclaimed-${run.id}@example.com`;
-    const item = await payOne(pp, run, 'unclaimed', { recipientType: 'EMAIL', receiver, amount: usd(100), senderItemId: rid('payout-unclaimed') });
-    if (item.transaction_status !== 'UNCLAIMED') {
-      throw new Error(`Expected UNCLAIMED for an address with no account, got ${item.transaction_status ?? 'no status'}`);
-    }
-    const cancelled = await cancelPayoutItem(pp, item.payout_item_id);
-    return `item ${item.payout_item_id} was UNCLAIMED, now ${cancelled.transaction_status ?? 'cancelled'}`;
-  });
-
   run.manual(
     GROUP,
     'Webhook signatures verify on a real delivery',
@@ -150,7 +153,7 @@ export async function paypalChecks(run: Run): Promise<void> {
 }
 
 /** Polls the order until the buyer approves it, so the check runs without a terminal to press Enter in. */
-async function waitForApproval(pp: PayPalClient, orderId: string, link: string, minutes = 15): Promise<void> {
+async function waitForApproval(pp: PayPalClient, orderId: string, link: string, minutes = 30): Promise<void> {
   console.log(`\n>>> Open this link, sign in as your SANDBOX buyer (a personal test account) and approve.\n>>> Waiting up to ${minutes} minutes:\n    ${link}\n`);
   const deadline = Date.now() + minutes * 60_000;
   while (Date.now() < deadline) {
@@ -162,7 +165,18 @@ async function waitForApproval(pp: PayPalClient, orderId: string, link: string, 
   throw new Error(`Order ${orderId} was not approved within ${minutes} minutes`);
 }
 
-async function payOne(pp: PayPalClient, run: Run, label: string, item: PayoutItemInput): Promise<PayoutItem> {
+/** Waits for a payout batch to reach a final status (SUCCESS, DENIED, CANCELED); returns it. */
+async function waitForBatch(pp: PayPalClient, batchId: string, seconds = 300): Promise<string> {
+  const deadline = Date.now() + seconds * 1000;
+  for (;;) {
+    const status = (await getPayoutBatch(pp, batchId)).batch_header.batch_status;
+    if (FINAL_BATCH_STATUSES.has(status)) return status;
+    if (Date.now() > deadline) throw new Error(`Payout batch ${batchId} still ${status} after ${seconds} seconds`);
+    await sleep(5000);
+  }
+}
+
+async function payOne(pp: PayPalClient, run: Run, label: string, item: PayoutItemInput): Promise<PayoutItem & { batchId: string }> {
   const created = await createPayout(
     pp,
     {
@@ -177,8 +191,8 @@ async function payOne(pp: PayPalClient, run: Run, label: string, item: PayoutIte
     const batch = await getPayoutBatch(pp, batchId);
     const first = batch.items?.[0];
     const itemStatus = first?.transaction_status;
-    if (first && itemStatus && itemStatus !== 'PENDING' && itemStatus !== 'NEW') return first;
-    if (FINAL_BATCH_STATUSES.has(batch.batch_header.batch_status) && first) return first;
+    if (first && itemStatus && itemStatus !== 'PENDING' && itemStatus !== 'NEW') return { ...first, batchId };
+    if (FINAL_BATCH_STATUSES.has(batch.batch_header.batch_status) && first) return { ...first, batchId };
     await sleep(5000);
   }
   throw new Error(`Payout batch ${batchId} still pending after 90 seconds`);

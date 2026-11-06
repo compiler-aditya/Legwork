@@ -145,6 +145,21 @@ describe('a shop cancels after the deposit', () => {
     expect(await money.handlePayPalEvent(webhooks.captureCompleted('CAP-2', 'err_tap1-deposit-0'))).toBe('ignored: capture for an earlier contract');
   });
 
+  it('finishes the cancellation and flags the payout when PayPal will not cancel it yet', async () => {
+    await upToConfirming();
+    await money.confirmDeal(ERRAND, hardwareDeal());
+    await money.payDeposit(ERRAND);
+    await money.handlePayPalEvent(webhooks.captureCompleted('CAP-2', 'err_tap1-deposit-0'));
+    await money.handlePayPalEvent(webhooks.payoutItem('UNCLAIMED', 'ITEM-9', 'lw-err_tap1-payout-deposit'));
+    payments.cancelError = new Error('PayPal 400 BATCH_NOT_COMPLETED: Only item belonging to a batch in Processed status can be cancelled.');
+    const after = await money.shopCancelled(ERRAND, 'shop cancelled');
+    expect(after.state).toBe('comparing');
+    expect(after.contract).toBeUndefined();
+    expect(after.cancelledContracts).toHaveLength(1);
+    expect(payments.callsTo('refundCapture')).toHaveLength(1);
+    expect(after.attention).toMatch(/ITEM-9 .*BATCH_NOT_COMPLETED/);
+  });
+
   it('flags a deposit the shop already claimed', async () => {
     await upToConfirming();
     await money.confirmDeal(ERRAND, hardwareDeal());

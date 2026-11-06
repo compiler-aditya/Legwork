@@ -15,6 +15,8 @@ export class FakePayments implements PaymentsPort {
   private n = 0;
   /** Runs inside captureAuthorization, to simulate a webhook racing the call. */
   onCapture?: (id: string, input: CaptureInput) => void;
+  /** When set, cancelPayoutItem throws it (PayPal refusing, e.g. BATCH_NOT_COMPLETED). */
+  cancelError?: Error;
 
   private id(prefix: string) {
     this.n += 1;
@@ -52,6 +54,7 @@ export class FakePayments implements PaymentsPort {
   }
   async cancelPayoutItem(payoutItemId: string) {
     this.calls.push({ method: 'cancelPayoutItem', args: { payoutItemId } });
+    if (this.cancelError) throw this.cancelError;
     return { payout_item_id: payoutItemId, transaction_status: 'RETURNED' };
   }
 

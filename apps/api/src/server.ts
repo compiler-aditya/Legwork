@@ -32,6 +32,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: deps.logger ?? false, bodyLimit: 1_048_576 });
   const background = deps.background ?? nextTick;
 
+  app.get('/', async () => ({ service: 'Legwork API', health: '/health' }));
   app.get('/health', async () => ({ ok: true, ...deps.health }));
 
   // The voice agent's tools post ordinary JSON; their auth is the per-call token header.

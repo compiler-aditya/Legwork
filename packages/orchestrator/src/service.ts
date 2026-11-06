@@ -248,8 +248,16 @@ export class ErrandMoney {
       }
       const payout = errand.payouts.deposit;
       if (payout?.status === 'UNCLAIMED' && payout.itemId) {
-        const cancelled = await this.payments.cancelPayoutItem(payout.itemId);
-        payout.status = (cancelled.transaction_status as PayoutStatus | undefined) ?? 'CANCELED';
+        // PayPal refuses to cancel an item until its batch has finished processing
+        // (BATCH_NOT_COMPLETED). The cancellation still completes; a person
+        // cancels the payout once PayPal allows it.
+        try {
+          const cancelled = await this.payments.cancelPayoutItem(payout.itemId);
+          payout.status = (cancelled.transaction_status as PayoutStatus | undefined) ?? 'CANCELED';
+        } catch (err) {
+          const why = err instanceof Error ? err.message : String(err);
+          errand.attention = `Deposit payout item ${payout.itemId} to ${contract.businessId} is unclaimed but could not be cancelled yet (${why}); cancel it in PayPal or retry.`;
+        }
       } else if (payout && payout.status !== 'CANCELED' && payout.status !== 'RETURNED' && payout.status !== 'FAILED') {
         errand.attention = `Deposit payout ${payout.batchId} was ${payout.status} when ${contract.businessId} cancelled; recover it from the shop or absorb it.`;
       }
