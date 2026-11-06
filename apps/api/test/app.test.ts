@@ -4,8 +4,10 @@ import { createApp } from '../src/app';
 describe('createApp', () => {
   it('starts with nothing configured and says what is off', async () => {
     const { app, status } = await createApp({ env: {}, logger: false });
-    expect(status).toEqual({ storage: 'memory', migrationsApplied: [], paypal: { client: false, webhook: false, env: 'sandbox' }, voice: false });
-    expect((await app.inject({ method: 'GET', url: '/health' })).json()).toEqual({ ok: true, storage: 'memory', paypal: { client: false, webhook: false, env: 'sandbox' }, voice: false });
+    const off = { storage: 'memory', paypal: { client: false, webhook: false, env: 'sandbox' }, voice: false, calls: { enabled: false, allowlisted: 0 }, errands: false };
+    expect(status).toEqual({ ...off, migrationsApplied: [] });
+    expect((await app.inject({ method: 'GET', url: '/health' })).json()).toEqual({ ok: true, ...off });
+    expect((await app.inject({ method: 'POST', url: '/errands', payload: {} })).statusCode).toBe(404);
     // PayPal keeps retrying (5xx) until it is configured, so no delivery is lost.
     const res = await app.inject({ method: 'POST', url: '/webhooks/paypal', payload: '{"id":"WH-1","event_type":"X","resource":{}}', headers: { 'content-type': 'application/json' } });
     expect(res.statusCode).toBe(503);

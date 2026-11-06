@@ -23,21 +23,22 @@ export interface Database extends Queryable {
  * uses exactly one connection and lock holders never wait on the pool.
  */
 export function pgDatabase(pool: pg.Pool): Database {
-  const held = new AsyncLocalStorage<pg.PoolClient>();
+  // The connection a locked section runs on, and the lock keys it holds.
+  const held = new AsyncLocalStorage<{ client: pg.PoolClient; keys: Set<string> }>();
   const on = (c: pg.Pool | pg.PoolClient): Queryable => ({
     query: async <T extends object>(text: string, params?: unknown[]) => ({ rows: (await c.query(text, params)).rows as T[] }),
     exec: async (script) => {
       await c.query(script);
     },
   });
-  const current = () => on(held.getStore() ?? pool);
+  const current = () => on(held.getStore()?.client ?? pool);
 
   return {
     query: (text, params) => current().query(text, params),
     exec: (script) => current().exec(script),
 
     async transaction(fn) {
-      const inLock = held.getStore();
+      const inLock = held.getStore()?.client;
       const client = inLock ?? (await pool.connect());
       try {
         await client.query('BEGIN');
@@ -53,14 +54,25 @@ export function pgDatabase(pool: pg.Pool): Database {
     },
 
     async withLock(key, fn) {
-      const inLock = held.getStore();
-      if (inLock) return fn(); // advisory locks are re-entrant within a session
+      const ctx = held.getStore();
+      if (ctx?.keys.has(key)) return fn();
+      if (ctx) {
+        // A different key inside a locked section: take it on the same session.
+        await ctx.client.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [key]);
+        ctx.keys.add(key);
+        try {
+          return await fn();
+        } finally {
+          ctx.keys.delete(key);
+          await ctx.client.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [key]);
+        }
+      }
       const client = await pool.connect();
       let broken: Error | undefined;
       try {
         await client.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [key]);
         try {
-          return await held.run(client, fn);
+          return await held.run({ client, keys: new Set([key]) }, fn);
         } finally {
           await client.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [key]).catch((err: Error) => {
             broken = err;

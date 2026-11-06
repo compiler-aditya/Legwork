@@ -1,0 +1,15 @@
+{
+  "name": "@legwork/outreach",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The outreach rounds: quote calls to up to three shops, choosing the best quote, the confirmation call, and falling back to the next shop.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@legwork/core": "*",
+    "@legwork/orchestrator": "*",
+    "@legwork/voice": "*"
+  }
+}

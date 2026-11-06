@@ -46,6 +46,7 @@ const variables: CallVariables = {
   item_description: arg('item') ?? 'a Moen 1222 shower cartridge',
   quantity: arg('quantity') ?? '1',
   quoted_price: round === 2 ? (arg('quoted') ?? '34.00') : '',
+  offer_price: round === 2 ? (arg('offer') ?? arg('quoted') ?? '34.00') : '',
   pickup_window: arg('pickup') ?? 'today after 3pm or tomorrow morning',
   call_token: mintCallToken(need('CALL_TOKEN_SECRET'), { errandId, outreachId, businessId, round, dialled: to }),
 };

@@ -30,6 +30,8 @@ export interface CallVariables {
   quantity: string;
   /** Round 2: the shop's round-1 quote, "34.00". Empty on round 1. */
   quoted_price: string;
+  /** Round 2: the price to ask for first, at most quoted_price (lower when the item is cheaper online). Empty on round 1. */
+  offer_price: string;
   /** When the buyer can collect, in plain words: "today after 3pm or tomorrow morning". */
   pickup_window: string;
   /** Minted per call (mintCallToken); sent back only in tool headers. */
@@ -61,7 +63,7 @@ Do not agree to buy, reserve or pay on round 1.
 
 # Round 2: confirm the order
 You called earlier and they quoted {{quoted_price}} dollars.
-1. Say {{buyer_first_name}} would like to go ahead, and check it is still available at {{quoted_price}} dollars and when it will be ready.
+1. Say {{buyer_first_name}} would like to go ahead, and check it is still available and when it will be ready. If {{offer_price}} is lower than {{quoted_price}}, ask once, politely, whether they could do {{offer_price}} dollars, since it is a little cheaper online. Whatever they say, {{quoted_price}} dollars is fine; never offer more.
 2. Ask how they would like to be paid: through PayPal or Venmo to the number you called, or to an email address or Venmo handle they give you. Spell back any email or handle letter by letter.
 3. Call ${CONFIRM_ORDER_TOOL} with exactly what they agreed to.
 4. The tool replies with a say field. Tell them what it says, in your own natural words, without changing any amount.
@@ -152,6 +154,7 @@ export function agentBody(spec: AgentSpec): Record<string, unknown> {
     item_description: 'a Moen 1222 shower cartridge',
     quantity: '1',
     quoted_price: '',
+    offer_price: '',
     pickup_window: 'today after 3pm or tomorrow morning',
     call_token: 'placeholder',
   };
