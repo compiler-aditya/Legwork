@@ -70,7 +70,7 @@ export async function paypalChecks(run: Run): Promise<void> {
     );
     const link = approveLink(order);
     if (!link) throw new Error(`No approve link on order ${order.id} (status ${order.status})`);
-    await run.waitFor(`Open this link, sign in as your SANDBOX buyer and approve:\n    ${link}`);
+    await waitForApproval(pp, order.id, link);
     const authorized = await authorizeOrder(pp, order.id, rid('authorize'));
     const auth = authorizationOf(authorized);
     if (!auth) throw new Error(`Order ${order.id} authorized but no authorization came back (status ${authorized.status})`);
@@ -145,8 +145,21 @@ export async function paypalChecks(run: Run): Promise<void> {
   run.manual(
     GROUP,
     'Webhook signatures verify on a real delivery',
-    'Start the API (npm run dev:api) behind a public URL (ngrok or Render), add it as the sandbox app webhook for the events in SUBSCRIBED_EVENTS, set PAYPAL_WEBHOOK_ID, then run the hold check again and watch the API log for verified events. Simulated events cannot be signature-verified.',
+    'The checks above send real webhook events to the URL registered with npm run paypal:webhook. Look in the deployed API log for "PayPal event" lines for this run (verified) rather than 400 signature replies. Simulated events cannot be signature-verified.',
   );
+}
+
+/** Polls the order until the buyer approves it, so the check runs without a terminal to press Enter in. */
+async function waitForApproval(pp: PayPalClient, orderId: string, link: string, minutes = 15): Promise<void> {
+  console.log(`\n>>> Open this link, sign in as your SANDBOX buyer (a personal test account) and approve.\n>>> Waiting up to ${minutes} minutes:\n    ${link}\n`);
+  const deadline = Date.now() + minutes * 60_000;
+  while (Date.now() < deadline) {
+    const { status } = await getOrder(pp, orderId);
+    if (status === 'APPROVED') return;
+    if (status === 'VOIDED' || status === 'COMPLETED') throw new Error(`Order ${orderId} is ${status}, not waiting for approval`);
+    await sleep(5000);
+  }
+  throw new Error(`Order ${orderId} was not approved within ${minutes} minutes`);
 }
 
 async function payOne(pp: PayPalClient, run: Run, label: string, item: PayoutItemInput): Promise<PayoutItem> {
