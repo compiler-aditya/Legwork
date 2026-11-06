@@ -29,11 +29,12 @@ On the phone, the agent can only say what the shop agreed to. Each call carries 
 | `packages/orchestrator`: the money service (hold, deposit, pickup, cancellations), driven by PayPal webhooks | Done, tested against a fake PayPal |
 | `packages/outreach`: the call rounds (3 quote calls at once, the cheapest quote within the hold called back with a counter-offer, the next shop if it declines or cancels, the hold released if nobody can), retries and lost calls | Done, tested |
 | `packages/messaging`: texts through Twilio (order summary to the shop, pickup code to the buyer, receipt), the shop texting the code back (signed webhook, 5 wrong codes lock it) | Done, tested |
+| `packages/agents`: the contract extractor (Claude Opus 5.5, structured outputs, low effort, server-side refusal fallbacks): the confirmation call into terms tied to transcript lines; quotes checked against their lines, compared with what the agent's tool recorded | Done, tested with a fake Claude |
 | `packages/db`: Postgres schema and migrations, the errand repo (append-only money rows, an advisory lock per errand across processes), the webhook event store, the outreach store | Done, tested on PGlite and Postgres 16 |
 | `packages/voice`: the ElevenLabs caller (prompt with AI and recording disclosure, `record_quote` and `confirm_order` tools), per-call tokens, outbound calls, signed post-call transcripts | Done, tested against a fake ElevenLabs |
 | `apps/api`: PayPal and ElevenLabs webhooks (verified, de-duplicated, retried if a handler fails), the voice agent's tools, errands over HTTP (create, PayPal return, status, timers), on Postgres when `DATABASE_URL` is set | Done; the hero errand runs from request to settled over HTTP in the tests |
 | `scripts/day-one`: checks against the real sandbox and services | Ready to run once credentials are in `.env` |
-| Agents (Claude: planner, contract extractor), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL, Render Workflows | Next |
+| Planner agent (Claude), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL, Render Workflows | Next |
 
 ## Repository
 
@@ -44,6 +45,7 @@ packages/orchestrator  the only code that moves money; errands advance on PayPal
 packages/voice     the ElevenLabs caller, its tools, call tokens and transcripts
 packages/outreach  the call rounds: quotes, the best quote, the confirmation call
 packages/messaging texts: order, pickup code, the shop texting it back, receipts
+packages/agents    Claude: the contract extractor (the planner comes next)
 packages/db        Postgres: migrations, errand repo, webhook event store
 apps/api           Fastify API: webhooks and live updates
 scripts/day-one    checks against the sandbox and sponsor services

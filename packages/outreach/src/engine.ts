@@ -1,4 +1,4 @@
-import type { Money } from '@legwork/core';
+import type { ContractReview, Money } from '@legwork/core';
 import type { Errand, ErrandMoney } from '@legwork/orchestrator';
 import { mintCallToken, type CallClaims, type CallReport, type CallVariables, type Quote } from '@legwork/voice';
 import { chooseBest, dollars } from './choose';
@@ -168,6 +168,22 @@ export class OutreachEngine {
       );
     }
     return done;
+  }
+
+  row(id: string): Promise<OutreachRow | undefined> {
+    return this.o.store.get(id);
+  }
+
+  /** Keeps the contract extractor's reading with the confirmation call. */
+  attachReview(rowId: string, review: ContractReview): Promise<void> {
+    return this.o.store.get(rowId).then((found) => {
+      if (!found) throw new OutreachError(`No outreach ${rowId}`);
+      return this.locked(found.errandId, async () => {
+        const row = (await this.o.store.get(rowId))!;
+        row.review = review;
+        await this.o.store.save(row);
+      });
+    });
   }
 
   async view(errandId: string): Promise<{ plan?: OutreachPlan; rows: OutreachRow[] }> {

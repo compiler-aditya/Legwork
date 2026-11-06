@@ -3,6 +3,7 @@ import { FakePayments, webhooks } from '@legwork/orchestrator/testing';
 import type { Caller } from '@legwork/outreach';
 import { signTwilio } from '@legwork/messaging';
 import { CALL_TOKEN_HEADER, signElevenLabsBody, type CallVariables } from '@legwork/voice';
+import type { MessagesApi } from '@legwork/agents';
 import { createApp } from '../src/app';
 
 const ADMIN = 'admin-token-for-tests';
@@ -39,6 +40,20 @@ async function setup() {
     },
     caller,
     sms: { send: async (to, body) => texts.push({ to, body }) },
+    // Claude, faked: reads the confirmation call as $32 for one cartridge.
+    anthropic: {
+      create: async () => ({
+        id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', stop_details: null, usage: { input_tokens: 1, output_tokens: 1 },
+        content: [{ type: 'text', text: JSON.stringify({
+          agreed: true,
+          item: { value: 'Moen 1222 cartridge', line: 1, quote: 'Moen 1222 cartridge' },
+          quantity: { value: 1, line: 1, quote: 'one' },
+          total: { value: '32.00', line: 1, quote: '$32' },
+          ready_at: { value: 'after 3', line: 1, quote: 'after 3' },
+          notes: '',
+        }) }],
+      }),
+    } as unknown as MessagesApi,
     paypal: { payments, verify: async () => true },
     logger: false,
   });
@@ -73,7 +88,7 @@ async function setup() {
 describe('the hero errand over HTTP', () => {
   it('goes from a request to a settled errand, driven only by PayPal, the agent tools, post-call webhooks and texts', async () => {
     const t = await setup();
-    expect(t.status).toMatchObject({ errands: true, voice: true, texts: true, calls: { enabled: true, allowlisted: 3 } });
+    expect(t.status).toMatchObject({ errands: true, voice: true, texts: true, agents: true, calls: { enabled: true, allowlisted: 3 } });
 
     // 1. The buyer asks; the API returns PayPal's approve link for a $40 hold.
     const created = await t.app.inject({
@@ -114,7 +129,10 @@ describe('the hero errand over HTTP', () => {
     expect(callback).toMatchObject({ to: SHOPS[0]!.phone, variables: { round: '2', quoted_price: '34.00', offer_price: '31.00' } });
     const confirmed = await t.tool('confirm-order', callback, { item: 'Moen 1222 cartridge', quantity: 1, total: '32.00', ready_at: 'after 3', payout_method: 'this_phone_venmo', payout_receiver: '' });
     expect(confirmed.json()).toMatchObject({ ok: true });
-    await t.callEnded(callback);
+    await t.callEnded(callback, [
+      { role: 'agent', message: 'Could you do thirty-one for the cartridge?' },
+      { role: 'user', message: 'I can do one Moen 1222 cartridge for $32, ready after 3.' },
+    ]);
 
     // 5. The deposit is captured, and paid to the shop once PayPal confirms the capture.
     await vi.waitFor(() => expect(t.payments.callsTo('captureAuthorization')).toHaveLength(1));
@@ -145,6 +163,8 @@ describe('the hero errand over HTTP', () => {
     const final = await t.view(errandId);
     expect(final.errand).toMatchObject({ state: 'settled', contract: { businessId: 'biz_hartley', total: { cents: 3200 }, deposit: { cents: 900 } } });
     expect(final.pickups).toMatchObject([{ status: 'confirmed', wrongAttempts: 1, shopPhone: SHOPS[0]!.phone }]);
+    // Claude's reading of the confirmation call matches what the agent recorded.
+    expect(final.outreach.rows[3].review).toMatchObject({ agreed: true, mismatches: [], unverified: [], terms: { totalCents: { value: 3200, line: 1, at: '0:05' } } });
     expect(final.outreach.rows.map((r: { businessId: string; round: number; result: string }) => `${r.round}:${r.businessId}:${r.result}`)).toEqual([
       '1:biz_hartley:quoted',
       '1:biz_corner:quoted',

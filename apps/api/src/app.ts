@@ -1,5 +1,8 @@
+import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyInstance } from 'fastify';
 import pg from 'pg';
+import { ContractExtractor, type MessagesApi } from '@legwork/agents';
+import { needsReview, usd } from '@legwork/core';
 import { PgErrandRepo, PgEventStore, PgOutreachStore, PgPickupStore, migrate, pgDatabase, type Database } from '@legwork/db';
 import { MemoryPickupStore, PickupDesk, TwilioSms, type PickupStore, type Sms } from '@legwork/messaging';
 import { ErrandMoney, MemoryErrandRepo, paypalPayments, type ErrandRepo, type PaymentsPort } from '@legwork/orchestrator';
@@ -24,6 +27,8 @@ export interface AppStatus {
   errands: boolean;
   /** Texts through Twilio, and the webhook for shops texting back. */
   texts: boolean;
+  /** Claude: the contract extractor (ANTHROPIC_API_KEY). */
+  agents: boolean;
 }
 
 export interface AppOptions {
@@ -38,6 +43,8 @@ export interface AppOptions {
   caller?: Caller;
   /** Replaces Twilio as the way texts are sent (tests). */
   sms?: Sms;
+  /** Replaces the Claude Messages API (tests). */
+  anthropic?: MessagesApi;
   /** Replaces PayPal (tests): the calls, and the webhook signature check. */
   paypal?: { payments: PaymentsPort; verify: (headers: HeaderBag, rawBody: string) => Promise<boolean> };
   logger?: boolean;
@@ -153,6 +160,29 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
     if (done.length) app.log.info({ done }, 'outreach timers');
   };
 
+  // Claude reads each confirmation call into contract terms tied to its lines.
+  const messagesApi = opts.anthropic ?? (env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages : undefined);
+  const extractor = messagesApi ? new ContractExtractor(messagesApi) : undefined;
+  const reviewConfirmation = async (outreachId: string | undefined) => {
+    if (!extractor || !outreach || !outreachId) return;
+    const row = await outreach.row(outreachId);
+    if (!row || row.round !== 2 || row.result !== 'confirmed' || !row.transcript?.length) return;
+    const errand = await repo.get(row.errandId);
+    const contract = errand?.contract;
+    if (!contract || contract.outreachId !== row.id) return;
+    const plan = await outreachStore.getPlan(row.errandId);
+    const review = await extractor.extract({
+      errandId: row.errandId,
+      shopId: contract.businessId,
+      shopName: plan?.shops.find((s) => s.businessId === contract.businessId)?.name ?? contract.businessId,
+      lines: row.transcript,
+      recorded: { item: contract.item, quantity: contract.quantity, totalCents: contract.total.cents },
+    });
+    await outreach.attachReview(row.id, review);
+    const log = needsReview(review) ? app.log.warn.bind(app.log) : app.log.info.bind(app.log);
+    log({ errandId: row.errandId, agreed: review.agreed, mismatches: review.mismatches, unverified: review.unverified, total: review.terms ? usd(review.terms.totalCents.value) : undefined }, needsReview(review) ? 'contract needs the buyer to review' : 'contract matches the call');
+  };
+
   // Voice: the agent's tools and the post-call webhook.
   let voice: VoiceDeps | undefined;
   if (env.ELEVENLABS_WEBHOOK_SECRET && env.CALL_TOKEN_SECRET) {
@@ -171,6 +201,9 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
       onCallReport: async (report) => {
         const outcome = outreach ? await outreach.callEnded(report) : 'no outreach engine';
         app.log.info({ kind: report.kind, conversationId: report.conversationId, outcome }, 'call report');
+        if (report.kind === 'transcript') {
+          await reviewConfirmation(report.outreachId).catch((err: unknown) => app.log.error({ err, outreachId: report.outreachId }, 'contract extraction failed'));
+        }
         await tick();
       },
     };
@@ -188,6 +221,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
     calls: { enabled: callsEnabled, allowlisted: allowlist.length },
     errands: errandRoutes,
     texts: textsIn || Boolean(opts.sms),
+    agents: Boolean(extractor),
   };
 
   const app = buildServer({
@@ -200,6 +234,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
       calls: status.calls,
       errands: status.errands,
       texts: status.texts,
+      agents: status.agents,
       ...(env.VERCEL_GIT_COMMIT_SHA ? { commit: env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) } : {}),
     },
     verifyPayPal: async (headers, rawBody) => {

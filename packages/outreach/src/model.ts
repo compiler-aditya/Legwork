@@ -1,4 +1,4 @@
-import type { Money } from '@legwork/core';
+import type { ContractReview, Money } from '@legwork/core';
 import type { Quote, TranscriptLine } from '@legwork/voice';
 
 /** A shop the planner chose to call, in the order it prefers them. */
@@ -55,6 +55,8 @@ export interface OutreachRow {
   startedAt?: string;
   endedAt?: string;
   transcript?: TranscriptLine[];
+  /** Round 2, once confirmed: the contract extractor's reading of the call. */
+  review?: ContractReview;
   error?: string;
 }
 

@@ -8,6 +8,8 @@
     ".": "./src/server.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
+    "@legwork/agents": "*",
     "@legwork/core": "*",
     "@legwork/db": "*",
     "@legwork/messaging": "*",

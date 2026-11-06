@@ -75,3 +75,27 @@ export function canonicalJson(value: unknown): string {
 export function contractHash(terms: ContractTerms, shopId: string, errandId: string): string {
   return createHash('sha256').update(canonicalJson({ errandId, shopId, terms })).digest('hex');
 }
+
+/**
+ * The contract extractor's reading of the confirmation call, kept with the
+ * call. A mismatch or an unverified quote goes to the buyer to review.
+ */
+export interface ContractReview {
+  /** Whether the shop agreed to an order on the call, as the transcript reads. */
+  agreed: boolean;
+  terms?: ContractTerms;
+  /** contractHash of the terms. */
+  hash?: string;
+  /** Terms that disagree with what the agent's confirm_order tool recorded. */
+  mismatches: Mismatch[];
+  /** Terms whose quote is not on the transcript line it cites. */
+  unverified: Array<keyof ContractTerms>;
+  notes?: string;
+  model: string;
+  reviewedAt: string;
+}
+
+/** True when the buyer should look at the call before the balance is paid. */
+export function needsReview(review: ContractReview): boolean {
+  return !review.agreed || review.mismatches.length > 0 || review.unverified.length > 0;
+}

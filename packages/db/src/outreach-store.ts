@@ -16,10 +16,11 @@ interface Row {
   started_at: Date | null;
   ended_at: Date | null;
   transcript: OutreachRow['transcript'] | null;
+  review: OutreachRow['review'] | null;
   error: string | null;
 }
 
-const COLUMNS = 'id, errand_id, business_id, round, provider_ref, status, quote, offer, attempt, result, retry_at, started_at, ended_at, transcript, error';
+const COLUMNS = 'id, errand_id, business_id, round, provider_ref, status, quote, offer, attempt, result, retry_at, started_at, ended_at, transcript, review, error';
 
 /** Plans in errand_plans, one row per call in outreach; shops are kept in businesses. */
 export class PgOutreachStore implements OutreachStore {
@@ -49,12 +50,12 @@ export class PgOutreachStore implements OutreachStore {
 
   async save(row: OutreachRow): Promise<void> {
     await this.db.query(
-      `INSERT INTO outreach (id, errand_id, business_id, round, channel, provider_ref, status, quote, offer, attempt, result, retry_at, started_at, ended_at, transcript, error)
-       VALUES ($1, $2, $3, $4, 'voice', $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14::jsonb, $15)
+      `INSERT INTO outreach (id, errand_id, business_id, round, channel, provider_ref, status, quote, offer, attempt, result, retry_at, started_at, ended_at, transcript, error, review)
+       VALUES ($1, $2, $3, $4, 'voice', $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14::jsonb, $15, $16::jsonb)
        ON CONFLICT (id) DO UPDATE SET
          provider_ref = EXCLUDED.provider_ref, status = EXCLUDED.status, quote = EXCLUDED.quote, offer = EXCLUDED.offer,
          attempt = EXCLUDED.attempt, result = EXCLUDED.result, retry_at = EXCLUDED.retry_at, started_at = EXCLUDED.started_at,
-         ended_at = EXCLUDED.ended_at, transcript = EXCLUDED.transcript, error = EXCLUDED.error, updated_at = now()`,
+         ended_at = EXCLUDED.ended_at, transcript = EXCLUDED.transcript, error = EXCLUDED.error, review = EXCLUDED.review, updated_at = now()`,
       [
         row.id,
         row.errandId,
@@ -71,6 +72,7 @@ export class PgOutreachStore implements OutreachStore {
         row.endedAt ?? null,
         json(row.transcript),
         row.error ?? null,
+        json(row.review),
       ],
     );
   }
@@ -115,6 +117,7 @@ function fromRow(r: Row): OutreachRow {
   if (r.started_at !== null) row.startedAt = iso(r.started_at);
   if (r.ended_at !== null) row.endedAt = iso(r.ended_at);
   if (r.transcript !== null) row.transcript = r.transcript;
+  if (r.review !== null) row.review = r.review;
   if (r.error !== null) row.error = r.error;
   return row;
 }

@@ -1,0 +1,15 @@
+{
+  "name": "@legwork/agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Claude parts of Legwork: the contract extractor (and next, the planner).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
+    "@legwork/core": "*",
+    "@legwork/voice": "*"
+  }
+}
