@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import pg from 'pg';
-import { PgErrandRepo, PgEventStore, PgOutreachStore, migrate, pgDatabase, type Database } from '@legwork/db';
+import { PgErrandRepo, PgEventStore, PgOutreachStore, PgPickupStore, migrate, pgDatabase, type Database } from '@legwork/db';
+import { MemoryPickupStore, PickupDesk, TwilioSms, type PickupStore, type Sms } from '@legwork/messaging';
 import { ErrandMoney, MemoryErrandRepo, paypalPayments, type ErrandRepo, type PaymentsPort } from '@legwork/orchestrator';
 import { MemoryOutreachStore, OutreachEngine, consentingOnly, type Caller, type OutreachStore } from '@legwork/outreach';
 import { PayPalClient, verifyWebhookSignature, type HeaderBag, type PayPalEnv } from '@legwork/paypal';
@@ -8,6 +9,7 @@ import { ElevenLabsClient } from '@legwork/voice';
 import { registerErrandRoutes } from './errands';
 import { MemoryEventStore, type EventStore } from './events';
 import { buildServer, type Background } from './server';
+import { registerTwilioWebhook } from './twilio';
 import type { VoiceDeps } from './voice';
 
 export interface AppStatus {
@@ -20,6 +22,8 @@ export interface AppStatus {
   calls: { enabled: boolean; allowlisted: number };
   /** POST /errands and friends (needs LEGWORK_ADMIN_TOKEN). */
   errands: boolean;
+  /** Texts through Twilio, and the webhook for shops texting back. */
+  texts: boolean;
 }
 
 export interface AppOptions {
@@ -32,6 +36,8 @@ export interface AppOptions {
   onPool?: (pool: pg.Pool) => void;
   /** Replaces ElevenLabs as the way calls are placed (tests). */
   caller?: Caller;
+  /** Replaces Twilio as the way texts are sent (tests). */
+  sms?: Sms;
   /** Replaces PayPal (tests): the calls, and the webhook signature check. */
   paypal?: { payments: PaymentsPort; verify: (headers: HeaderBag, rawBody: string) => Promise<boolean> };
   logger?: boolean;
@@ -52,6 +58,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
   let repo: ErrandRepo;
   let events: EventStore;
   let outreachStore: OutreachStore;
+  let pickupStore: PickupStore;
   let migrationsApplied: string[] = [];
   const dbUrl = env.DATABASE_URL_UNPOOLED || env.DATABASE_URL;
   if (dbUrl) {
@@ -64,10 +71,12 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
     repo = new PgErrandRepo(db);
     events = new PgEventStore(db);
     outreachStore = new PgOutreachStore(db);
+    pickupStore = new PgPickupStore(db);
   } else {
     repo = new MemoryErrandRepo();
     events = new MemoryEventStore();
     outreachStore = new MemoryOutreachStore();
+    pickupStore = new MemoryPickupStore();
   }
 
   // PayPal. The client works without a webhook id; webhooks need one.
@@ -119,6 +128,26 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
           ...(db ? { lock: db.withLock.bind(db) } : {}),
         })
       : undefined;
+  // Texts: through Twilio when it is set up, otherwise written to the log.
+  const twilioReady = Boolean(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_FROM_NUMBER);
+  const rawSms: Sms =
+    opts.sms ??
+    (twilioReady
+      ? new TwilioSms({ accountSid: env.TWILIO_ACCOUNT_SID!, authToken: env.TWILIO_AUTH_TOKEN!, from: env.TWILIO_FROM_NUMBER! })
+      : { send: async (to: string, body: string) => app.log.info({ to, body }, 'text (Twilio not set up, not sent)') });
+  // Shops are texted only if they agreed (CALL_ALLOWLIST); the buyer gave their number for this.
+  const desk = money
+    ? new PickupDesk({
+        money,
+        errands: repo,
+        plans: outreachStore,
+        store: pickupStore,
+        sms: rawSms,
+        canText: (to, who) => who === 'buyer' || allowlist.includes(to),
+        log: (message, data) => app.log.warn(data ?? {}, message),
+      })
+    : undefined;
+
   const tick = async () => {
     const done = (await outreach?.tick()) ?? [];
     if (done.length) app.log.info({ done }, 'outreach timers');
@@ -149,6 +178,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
 
   const publicUrl = (env.PUBLIC_API_URL || (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/$/, '');
   const errandRoutes = Boolean(env.LEGWORK_ADMIN_TOKEN && money && outreach && publicUrl);
+  const textsIn = Boolean(twilioReady && desk && publicUrl);
 
   const status: AppStatus = {
     storage: dbUrl ? 'postgres' : 'memory',
@@ -157,6 +187,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
     voice: !!voice,
     calls: { enabled: callsEnabled, allowlisted: allowlist.length },
     errands: errandRoutes,
+    texts: textsIn || Boolean(opts.sms),
   };
 
   const app = buildServer({
@@ -168,6 +199,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
       voice: status.voice,
       calls: status.calls,
       errands: status.errands,
+      texts: status.texts,
       ...(env.VERCEL_GIT_COMMIT_SHA ? { commit: env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) } : {}),
     },
     verifyPayPal: async (headers, rawBody) => {
@@ -186,6 +218,10 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
         const rows = await outreach.start(errandId);
         app.log.info({ errandId, calls: rows.map((r) => ({ shop: r.businessId, status: r.status, result: r.result, error: r.error })) }, 'round 1 started');
       }
+      // The deposit or balance is captured and the shop paid: the texts that go with it.
+      const invoice = /^(.+)-(deposit|balance)-\d+$/.exec(String((event.resource as { invoice_id?: unknown }).invoice_id ?? ''));
+      if (desk && invoice && outcome === 'deposit captured, shop paid') app.log.info({ errandId: invoice[1], outcome: await desk.depositPaid(invoice[1]!) }, 'pickup');
+      if (desk && invoice && outcome === 'balance captured, shop paid') app.log.info({ errandId: invoice[1], outcome: await desk.balancePaid(invoice[1]!) }, 'receipt');
       await tick();
     },
     ...(voice ? { voice } : {}),
@@ -199,10 +235,13 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
       money: money!,
       repo,
       outreach: outreach!,
+      desk: desk!,
+      pickups: pickupStore,
       ensureUser: async (id, name) => {
         await db?.query(`INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [id, name]);
       },
     });
   }
+  if (textsIn) registerTwilioWebhook(app, { authToken: env.TWILIO_AUTH_TOKEN!, publicUrl, desk: desk!, events });
   return { app, status };
 }

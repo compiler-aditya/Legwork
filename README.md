@@ -13,7 +13,8 @@ PayPal is the spine: every errand state change is a PayPal state change, confirm
 1. **Budget hold before any call.** The buyer approves one PayPal hold for their maximum (an `AUTHORIZE` order), so "the payment is already held by PayPal" is true on every call.
 2. **Deposit when the shop confirms.** Part of the hold is captured (`final_capture: false`) and paid to the shop with Payouts, to the phone number Legwork dialled, an email or a Venmo handle.
 3. **Balance at pickup.** When the shop reads back the pickup code, the agreed balance is captured with `final_capture: true` and the unused part of the hold is released.
-4. **Cancellations unwind.** No deal voids the hold; a shop cancelling after the deposit refunds it and cancels an unclaimed payout.
+4. **Pickup by code.** Only the buyer gets the 4-digit pickup code. At the counter they give it to the shop, and the shop texts it back to Legwork; a match captures the balance. The shop never learns the code any other way, so it cannot claim the balance unless the buyer was there, and five wrong codes lock the pickup for a person to look at.
+5. **Cancellations unwind.** No deal voids the hold; a shop cancelling after the deposit refunds it and cancels an unclaimed payout.
 
 Models never move money. Only the orchestrator calls PayPal, from an approved contract, and `assertCaptureAllowed` refuses any capture above the contract total.
 
@@ -27,11 +28,12 @@ On the phone, the agent can only say what the shop agreed to. Each call carries 
 | `packages/paypal`: holds, saved PayPal, captures, voids, refunds, payouts, webhook verification | Done, tested against a fake PayPal |
 | `packages/orchestrator`: the money service (hold, deposit, pickup, cancellations), driven by PayPal webhooks | Done, tested against a fake PayPal |
 | `packages/outreach`: the call rounds (3 quote calls at once, the cheapest quote within the hold called back with a counter-offer, the next shop if it declines or cancels, the hold released if nobody can), retries and lost calls | Done, tested |
+| `packages/messaging`: texts through Twilio (order summary to the shop, pickup code to the buyer, receipt), the shop texting the code back (signed webhook, 5 wrong codes lock it) | Done, tested |
 | `packages/db`: Postgres schema and migrations, the errand repo (append-only money rows, an advisory lock per errand across processes), the webhook event store, the outreach store | Done, tested on PGlite and Postgres 16 |
 | `packages/voice`: the ElevenLabs caller (prompt with AI and recording disclosure, `record_quote` and `confirm_order` tools), per-call tokens, outbound calls, signed post-call transcripts | Done, tested against a fake ElevenLabs |
-| `apps/api`: PayPal and ElevenLabs webhooks (verified, de-duplicated, retried if a handler fails), the voice agent's tools, errands over HTTP (create, PayPal return, status, timers), on Postgres when `DATABASE_URL` is set | Done; the hero errand runs end to end over HTTP in the tests |
+| `apps/api`: PayPal and ElevenLabs webhooks (verified, de-duplicated, retried if a handler fails), the voice agent's tools, errands over HTTP (create, PayPal return, status, timers), on Postgres when `DATABASE_URL` is set | Done; the hero errand runs from request to settled over HTTP in the tests |
 | `scripts/day-one`: checks against the real sandbox and services | Ready to run once credentials are in `.env` |
-| Agents (Claude: planner, contract extractor), pickup code by text (Twilio), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL, Render Workflows | Next |
+| Agents (Claude: planner, contract extractor), web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic), Channel3, KERNEL, Render Workflows | Next |
 
 ## Repository
 
@@ -41,6 +43,7 @@ packages/paypal    PayPal REST client and calls
 packages/orchestrator  the only code that moves money; errands advance on PayPal webhooks
 packages/voice     the ElevenLabs caller, its tools, call tokens and transcripts
 packages/outreach  the call rounds: quotes, the best quote, the confirmation call
+packages/messaging texts: order, pickup code, the shop texting it back, receipts
 packages/db        Postgres: migrations, errand repo, webhook event store
 apps/api           Fastify API: webhooks and live updates
 scripts/day-one    checks against the sandbox and sponsor services
@@ -118,6 +121,8 @@ Start an errand over HTTP (needs `LEGWORK_ADMIN_TOKEN`; the shops' numbers must 
 ```bash
 curl -X POST "$PUBLIC_API_URL/errands" -H "Authorization: Bearer $LEGWORK_ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"userId":"usr_sam","userName":"Sam","request":{"kind":"item","text":"A Moen 1222 cartridge, today"},"budgetMaxCents":4000,"plan":{"item":"a Moen 1222 shower cartridge","quantity":1,"pickupWindow":"today after 3pm","buyerFirstName":"Sam","shops":[{"businessId":"biz_test","name":"Test Shop","phone":"+14155550123"}]}}'
 ```
+
+Without Twilio, the shop's text with the pickup code can be played by hand: `POST /errands/<id>/pickup-code` with `{"code":"4821"}` and the admin token.
 
 Only call numbers whose owners have agreed to a call from an AI. The agent says it is an AI and that the call is recorded in its first sentence, and never leaves voicemail.
 

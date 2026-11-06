@@ -18,6 +18,8 @@ export interface OutreachPlan {
   /** Said on the call: "today after 3pm or tomorrow morning". */
   pickupWindow: string;
   buyerFirstName: string;
+  /** Where the buyer's pickup code and receipt are texted (E.164); without it the web app shows the code. */
+  buyerPhone?: string;
   /** The best online price for the same item (Channel3); sets the counter-offer. */
   benchmark?: { price: Money; source: string; url?: string };
   shops: Shop[];

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { usd } from '@legwork/core';
 import type { ErrandMoney, ErrandRepo } from '@legwork/orchestrator';
+import type { PickupDesk, PickupStore } from '@legwork/messaging';
 import type { OutreachEngine } from '@legwork/outreach';
 
 export interface ErrandDeps {
@@ -15,6 +16,8 @@ export interface ErrandDeps {
   money: ErrandMoney;
   repo: Pick<ErrandRepo, 'get'>;
   outreach: OutreachEngine;
+  desk: PickupDesk;
+  pickups: PickupStore;
   ensureUser(id: string, name: string): Promise<void>;
 }
 
@@ -29,6 +32,7 @@ const CreateErrand = z.object({
     quantity: z.number().int().min(1).max(10_000),
     pickupWindow: z.string().trim().min(1).max(200),
     buyerFirstName: z.string().trim().min(1).max(50),
+    buyerPhone: z.string().regex(/^\+[1-9]\d{6,14}$/).optional(),
     benchmark: z.object({ priceCents: cents, source: z.string().trim().min(1).max(200), url: z.url().optional() }).optional(),
     shops: z
       .array(z.object({ businessId: z.string().regex(/^[A-Za-z0-9_-]{1,60}$/), name: z.string().trim().min(1).max(200), phone: z.string().regex(/^\+[1-9]\d{6,14}$/) }))
@@ -43,7 +47,8 @@ const CreateErrand = z.object({
  *   POST /errands          plan and budget in; the PayPal approve link out
  *   GET  /paypal/return    PayPal sends the buyer back; the hold is authorized
  *                          and round 1 starts when PayPal's webhook confirms it
- *   GET  /errands/:id      the errand, its money state and every call
+ *   GET  /errands/:id      the errand, its money state, every call and the pickup
+ *   POST /errands/:id/pickup-code   the shop's code text, for demos without Twilio
  *   POST /internal/tick    retries and lost calls (also run on every webhook)
  */
 export function registerErrandRoutes(app: FastifyInstance, deps: ErrandDeps): void {
@@ -82,7 +87,16 @@ export function registerErrandRoutes(app: FastifyInstance, deps: ErrandDeps): vo
     await deps.outreach.tick();
     const errand = await deps.repo.get(req.params.id);
     if (!errand) return reply.code(404).send({ ok: false, error: 'not found' });
-    return { ok: true, errand, outreach: await deps.outreach.view(errand.id) };
+    return { ok: true, errand, outreach: await deps.outreach.view(errand.id), pickups: await deps.pickups.forErrand(errand.id) };
+  });
+
+  // For demos without Twilio: the shop's text with the code, as if it came from the shop's phone.
+  app.post<{ Params: { id: string }; Body: { code?: unknown } }>('/errands/:id/pickup-code', async (req, reply) => {
+    if (!allowed(req, deps.adminToken)) return reply.code(401).send({ ok: false, error: 'unauthorized' });
+    const open = (await deps.pickups.forErrand(req.params.id)).find((p) => p.status === 'open');
+    if (!open) return reply.code(404).send({ ok: false, error: 'no open pickup' });
+    const answer = await deps.desk.inbound(open.shopPhone, String(req.body?.code ?? ''));
+    return { ok: true, reply: answer };
   });
 
   app.post('/internal/tick', async (req, reply) => {

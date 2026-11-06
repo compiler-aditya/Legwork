@@ -10,6 +10,7 @@
   ],
   "dependencies": {
     "@legwork/core": "*",
+    "@legwork/messaging": "*",
     "@legwork/orchestrator": "*",
     "@legwork/outreach": "*",
     "pg": "^8.23.1"

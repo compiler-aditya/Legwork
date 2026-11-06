@@ -4,7 +4,7 @@ import { createApp } from '../src/app';
 describe('createApp', () => {
   it('starts with nothing configured and says what is off', async () => {
     const { app, status } = await createApp({ env: {}, logger: false });
-    const off = { storage: 'memory', paypal: { client: false, webhook: false, env: 'sandbox' }, voice: false, calls: { enabled: false, allowlisted: 0 }, errands: false };
+    const off = { storage: 'memory', paypal: { client: false, webhook: false, env: 'sandbox' }, voice: false, calls: { enabled: false, allowlisted: 0 }, errands: false, texts: false };
     expect(status).toEqual({ ...off, migrationsApplied: [] });
     expect((await app.inject({ method: 'GET', url: '/health' })).json()).toEqual({ ok: true, ...off });
     expect((await app.inject({ method: 'POST', url: '/errands', payload: {} })).statusCode).toBe(404);

@@ -39,7 +39,7 @@ async function toConfirming(money: ErrandMoney, id: string) {
 
 describe('migrations', () => {
   it('applies every migration once', async () => {
-    expect(await migrate(t.db)).toEqual(['001_init.sql', '002_errand_money.sql', '003_outreach_rounds.sql']);
+    expect(await migrate(t.db)).toEqual(['001_init.sql', '002_errand_money.sql', '003_outreach_rounds.sql', '004_pickups.sql']);
     expect(await migrate(t.db)).toEqual([]);
     await t.db.query(`INSERT INTO users (id, name) VALUES ('usr_sam', 'Sam') ON CONFLICT DO NOTHING`);
   });

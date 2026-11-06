@@ -10,6 +10,7 @@
   "dependencies": {
     "@legwork/core": "*",
     "@legwork/db": "*",
+    "@legwork/messaging": "*",
     "@legwork/orchestrator": "*",
     "@legwork/outreach": "*",
     "@legwork/paypal": "*",

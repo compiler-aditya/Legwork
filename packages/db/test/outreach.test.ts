@@ -5,7 +5,7 @@ import { FakePayments, webhooks } from '@legwork/orchestrator/testing';
 import { OutreachEngine, type Caller } from '@legwork/outreach';
 import type { CallVariables } from '@legwork/voice';
 import { verifyCallToken } from '@legwork/voice';
-import { PgErrandRepo, PgOutreachStore, migrate } from '../src';
+import { PgErrandRepo, PgOutreachStore, PgPickupStore, migrate } from '../src';
 import { openTestDatabase, type TestDatabase } from './harness';
 
 const SECRET = 'call-token-secret-of-at-least-32-chars!';
@@ -70,5 +70,18 @@ describe('PgOutreachStore under the outreach engine', () => {
     expect(view.rows[2]!.offer).toEqual({ ask: usd(3000), quoted: usd(3000) });
     const { rows } = await t.db.query<{ name: string }>(`SELECT name FROM businesses WHERE id = ANY($1) ORDER BY id`, [['biz_a', 'biz_b']]);
     expect(rows.map((r) => r.name)).toEqual(['Shop A', 'Shop B']);
+  });
+});
+
+describe('PgPickupStore', () => {
+  it('creates a pickup once per contract and finds open ones by the shop number', async () => {
+    const pickups = new PgPickupStore(t.db);
+    const p = { contractId: 'err_pg_rounds-c1', errandId: 'err_pg_rounds', shopPhone: '+14155550112', buyerPhone: '+14155559999', status: 'open' as const, wrongAttempts: 0 };
+    expect(await pickups.create(p)).toBe(true);
+    expect(await pickups.create(p)).toBe(false);
+    expect(await pickups.openForShop('+14155550112')).toEqual([p]);
+    await pickups.save({ ...p, status: 'locked', wrongAttempts: 5 });
+    expect(await pickups.openForShop('+14155550112')).toEqual([]);
+    expect(await pickups.forErrand('err_pg_rounds')).toEqual([{ ...p, status: 'locked', wrongAttempts: 5 }]);
   });
 });

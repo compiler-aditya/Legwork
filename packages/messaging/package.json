@@ -1,0 +1,15 @@
+{
+  "name": "@legwork/messaging",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Texts through Twilio: the order summary and pickup code, the shop texting the code back, and receipts.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@legwork/core": "*",
+    "@legwork/orchestrator": "*",
+    "@legwork/outreach": "*"
+  }
+}

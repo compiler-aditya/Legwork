@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { FakePayments, webhooks } from '@legwork/orchestrator/testing';
 import type { Caller } from '@legwork/outreach';
+import { signTwilio } from '@legwork/messaging';
 import { CALL_TOKEN_HEADER, signElevenLabsBody, type CallVariables } from '@legwork/voice';
 import { createApp } from '../src/app';
 
 const ADMIN = 'admin-token-for-tests';
 const WEBHOOK_SECRET = 'whsec_elevenlabs_test';
+const TWILIO_TOKEN = 'twilio-auth-token';
+const BUYER = '+14155559999';
 const SHOPS = [
   { businessId: 'biz_hartley', name: 'Hartley Hardware', phone: '+14155550101' },
   { businessId: 'biz_corner', name: 'Corner Plumbing Supply', phone: '+14155550102' },
@@ -22,6 +25,7 @@ async function setup() {
     },
   };
   const payments = new FakePayments();
+  const texts: Array<{ to: string; body: string }> = [];
   const { app, status } = await createApp({
     env: {
       LEGWORK_ADMIN_TOKEN: ADMIN,
@@ -29,8 +33,12 @@ async function setup() {
       ELEVENLABS_WEBHOOK_SECRET: WEBHOOK_SECRET,
       CALL_ALLOWLIST: SHOPS.map((s) => s.phone).join(','),
       PUBLIC_API_URL: 'https://api.legwork.test',
+      TWILIO_ACCOUNT_SID: 'AC_test',
+      TWILIO_AUTH_TOKEN: TWILIO_TOKEN,
+      TWILIO_FROM_NUMBER: '+14155550000',
     },
     caller,
+    sms: { send: async (to, body) => texts.push({ to, body }) },
     paypal: { payments, verify: async () => true },
     logger: false,
   });
@@ -53,13 +61,19 @@ async function setup() {
     return app.inject({ method: 'POST', url: '/webhooks/elevenlabs', payload: body, headers: { 'content-type': 'application/json', 'elevenlabs-signature': signElevenLabsBody(body, WEBHOOK_SECRET) } });
   };
   const view = async (id: string) => (await app.inject({ method: 'GET', url: `/errands/${id}`, headers: auth })).json();
-  return { app, status, calls, payments, auth, paypalWebhook, tool, callEnded, view };
+  /** A text to the Legwork number, signed the way Twilio signs it. */
+  const textIn = (from: string, body: string, sid: string) => {
+    const params = { From: from, To: '+14155550000', Body: body, MessageSid: sid };
+    const signature = signTwilio(TWILIO_TOKEN, 'https://api.legwork.test/webhooks/twilio/sms', params);
+    return app.inject({ method: 'POST', url: '/webhooks/twilio/sms', payload: new URLSearchParams(params).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': signature } });
+  };
+  return { app, status, calls, payments, texts, auth, paypalWebhook, tool, callEnded, view, textIn };
 }
 
 describe('the hero errand over HTTP', () => {
-  it('goes from a request to a paid deposit, driven only by PayPal, the agent tools and the post-call webhooks', async () => {
+  it('goes from a request to a settled errand, driven only by PayPal, the agent tools, post-call webhooks and texts', async () => {
     const t = await setup();
-    expect(t.status).toMatchObject({ errands: true, voice: true, calls: { enabled: true, allowlisted: 3 } });
+    expect(t.status).toMatchObject({ errands: true, voice: true, texts: true, calls: { enabled: true, allowlisted: 3 } });
 
     // 1. The buyer asks; the API returns PayPal's approve link for a $40 hold.
     const created = await t.app.inject({
@@ -71,7 +85,7 @@ describe('the hero errand over HTTP', () => {
         userName: 'Sam',
         request: { kind: 'item', text: 'A Moen 1222 cartridge for my shower, today' },
         budgetMaxCents: 4000,
-        plan: { item: 'a Moen 1222 shower cartridge', quantity: 1, pickupWindow: 'today after 3pm', buyerFirstName: 'Sam', benchmark: { priceCents: 3100, source: 'Channel3' }, shops: SHOPS },
+        plan: { item: 'a Moen 1222 shower cartridge', quantity: 1, pickupWindow: 'today after 3pm', buyerFirstName: 'Sam', buyerPhone: BUYER, benchmark: { priceCents: 3100, source: 'Channel3' }, shops: SHOPS },
       },
     });
     expect(created.statusCode).toBe(201);
@@ -109,8 +123,28 @@ describe('the hero errand over HTTP', () => {
     await vi.waitFor(() => expect(t.payments.callsTo('createPayout')).toHaveLength(1));
     expect(t.payments.callsTo('createPayout')[0]!.args).toMatchObject({ items: [{ recipientType: 'PHONE', receiver: SHOPS[0]!.phone, wallet: 'VENMO' }] });
 
+    // 6. Texts: the shop gets the order, the buyer gets the code.
+    await vi.waitFor(() => expect(t.texts.map((x) => x.to)).toEqual([SHOPS[0]!.phone, BUYER]));
+    const code = /pickup code is (\d{4})/.exec(t.texts[1]!.body)![1]!;
+    expect(t.texts[0]!.body).not.toContain(code);
+
+    // 7. At the counter the buyer gives the code; the shop texts it back. A forged text is refused.
+    expect((await t.app.inject({ method: 'POST', url: '/webhooks/twilio/sms', payload: `From=${encodeURIComponent(SHOPS[0]!.phone)}&Body=${code}`, headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': 'forged' } })).statusCode).toBe(403);
+    const wrong = await t.textIn(SHOPS[0]!.phone, '0000', 'SM1');
+    expect(wrong.body).toContain('that code does not match');
+    const right = await t.textIn(SHOPS[0]!.phone, `Customer here, code ${code}`, 'SM2');
+    expect(right.headers['content-type']).toMatch(/text\/xml/);
+    expect(right.body).toContain('code confirmed, thank you. $23.00 is on its way');
+    expect(t.payments.callsTo('captureAuthorization')[1]!.args).toMatchObject({ finalCapture: true, amount: { cents: 2300 } });
+
+    // 8. PayPal confirms the balance: the shop is paid and the buyer gets the receipt.
+    await t.paypalWebhook(webhooks.captureCompleted('CAP-5', `${errandId}-balance-0`));
+    await vi.waitFor(() => expect(t.payments.callsTo('createPayout')).toHaveLength(2));
+    await vi.waitFor(() => expect(t.texts.at(-1)).toEqual({ to: BUYER, body: 'Legwork: done. You paid $32.00 to Hartley Hardware through PayPal; the other $8.00 of your hold is released.' }));
+
     const final = await t.view(errandId);
-    expect(final.errand).toMatchObject({ state: 'deposit_paid', contract: { businessId: 'biz_hartley', total: { cents: 3200 }, deposit: { cents: 900 } } });
+    expect(final.errand).toMatchObject({ state: 'settled', contract: { businessId: 'biz_hartley', total: { cents: 3200 }, deposit: { cents: 900 } } });
+    expect(final.pickups).toMatchObject([{ status: 'confirmed', wrongAttempts: 1, shopPhone: SHOPS[0]!.phone }]);
     expect(final.outreach.rows.map((r: { businessId: string; round: number; result: string }) => `${r.round}:${r.businessId}:${r.result}`)).toEqual([
       '1:biz_hartley:quoted',
       '1:biz_corner:quoted',
