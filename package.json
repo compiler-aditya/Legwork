@@ -18,7 +18,8 @@
     "check:day-one": "tsx scripts/day-one/index.ts",
     "voice:setup": "tsx scripts/voice/setup-agent.ts",
     "voice:call": "tsx scripts/voice/call.ts",
-    "build:vercel": "node scripts/vercel/build.mjs"
+    "build:vercel": "node scripts/vercel/build.mjs",
+    "paypal:webhook": "tsx scripts/paypal/register-webhook.ts"
   },
   "devDependencies": {
     "@channel3/sdk": "^4.6.0",

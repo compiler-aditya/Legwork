@@ -76,6 +76,18 @@ npm run check:day-one
 
 ### Deploy to Vercel (development)
 
+The development API is live at https://legwork-api-five.vercel.app (Vercel project `legwork-api`, Postgres on Neon through the Vercel Marketplace). Redeploy from a checkout with the Vercel CLI (the project is not connected to Git yet):
+
+```bash
+npx vercel deploy --prod
+```
+
+Register the deployment as the PayPal app's webhook, then set the printed `PAYPAL_WEBHOOK_ID` on the project and redeploy:
+
+```bash
+npm run paypal:webhook -- --url=https://legwork-api-five.vercel.app/webhooks/paypal
+```
+
 The API runs on Vercel as one Node.js function. `npm run build:vercel` bundles `apps/api/src/vercel.ts` with esbuild into `.vercel/output` (Build Output API); Vercel runs it as the build command. Work after a webhook reply runs under `waitUntil`, so it finishes before the function is frozen.
 
 The API starts with whatever is configured and `GET /health` says what is on. Set these in the Vercel project (Settings, Environment Variables), then redeploy:

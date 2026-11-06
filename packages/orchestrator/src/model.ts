@@ -32,7 +32,7 @@ export interface Contract {
   pickupAt?: string;
 }
 
-export type PayoutStatus = 'sent' | 'SUCCEEDED' | 'UNCLAIMED' | 'CANCELED' | 'RETURNED' | 'FAILED' | 'BLOCKED' | 'DENIED';
+export type PayoutStatus = 'sent' | 'SUCCEEDED' | 'UNCLAIMED' | 'CANCELED' | 'RETURNED' | 'FAILED' | 'BLOCKED';
 
 export interface ErrandRequest {
   kind: 'item' | 'custom_order';
