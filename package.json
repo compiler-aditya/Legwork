@@ -19,7 +19,9 @@
     "voice:setup": "tsx scripts/voice/setup-agent.ts",
     "voice:call": "tsx scripts/voice/call.ts",
     "build:vercel": "node scripts/vercel/build.mjs",
-    "paypal:webhook": "tsx scripts/paypal/register-webhook.ts"
+    "paypal:webhook": "tsx scripts/paypal/register-webhook.ts",
+    "dev:web": "npm run dev -w @legwork/web",
+    "build:web": "npm run build -w @legwork/web"
   },
   "devDependencies": {
     "@channel3/sdk": "^4.6.0",

@@ -272,6 +272,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
       adminToken: env.LEGWORK_ADMIN_TOKEN!,
       ...(env.CRON_SECRET ? { cronSecret: env.CRON_SECRET } : {}),
       publicUrl,
+      ...(env.WEB_APP_URL ? { webAppUrl: env.WEB_APP_URL.replace(/\/$/, '') } : {}),
       money: money!,
       repo,
       outreach: outreach!,

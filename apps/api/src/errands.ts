@@ -14,6 +14,8 @@ export interface ErrandDeps {
   cronSecret?: string;
   /** Where PayPal sends the buyer back after approving the hold. */
   publicUrl: string;
+  /** The web app; after approving, the buyer lands on the errand's page there. */
+  webAppUrl?: string;
   money: ErrandMoney;
   repo: Pick<ErrandRepo, 'get'>;
   outreach: OutreachEngine;
@@ -177,10 +179,11 @@ export function registerErrandRoutes(app: FastifyInstance, deps: ErrandDeps): vo
     // PayPal appends the order id as token; it must be this errand's hold.
     if (!errand || !errand.hold || errand.hold.orderId !== req.query.token) return page(reply.code(404), 'This approval link is not for a Legwork errand.');
     if (errand.state === 'hold_pending' && !errand.hold.authorizationId) await deps.money.buyerApproved(errand.id);
+    if (deps.webAppUrl) return reply.redirect(`${deps.webAppUrl}/errands/${errand.id}`, 303);
     return page(reply, 'Thanks. PayPal is holding your budget, and Legwork is calling the shops now. Nothing is charged until a shop agrees.');
   });
 
-  app.get('/paypal/cancel', async (_req, reply) => page(reply, 'No problem: nothing was held and no shop will be called.'));
+  app.get('/paypal/cancel', async (_req, reply) => (deps.webAppUrl ? reply.redirect(`${deps.webAppUrl}/`, 303) : page(reply, 'No problem: nothing was held and no shop will be called.')));
 }
 
 function runPlanner(planner: Planner, input: z.infer<typeof PreviewPlan>): Promise<PlannerResult> {

@@ -35,7 +35,8 @@ On the phone, the agent can only say what the shop agreed to. Each call carries 
 | `packages/voice`: the ElevenLabs caller (prompt with AI and recording disclosure, `record_quote` and `confirm_order` tools), per-call tokens, outbound calls, signed post-call transcripts | Done, tested against a fake ElevenLabs |
 | `apps/api`: PayPal and ElevenLabs webhooks (verified, de-duplicated, retried if a handler fails), the voice agent's tools, errands over HTTP (create, PayPal return, status, timers), on Postgres when `DATABASE_URL` is set | Done; the hero errand runs from request to settled over HTTP in the tests |
 | `scripts/day-one`: checks against the real sandbox and services | Ready to run once credentials are in `.env` |
-| Web app (Next.js, Bryntum, AG Studio), Offline Index (Elastic, replacing the Postgres shop directory), KERNEL web worker, Render Workflows | Next |
+| `apps/web`: the web app (Next.js 16): a request planned by Claude and shown before any money moves, the PayPal approval, mission control (the money track, the calls on a Bryntum Scheduler timeline and an AG Grid table, the contract in the shop's words, the pickup code), and the shop directory; the admin token stays on the server | Done; checked in a browser at desktop and phone widths |
+| Offline Index (Elastic, replacing the Postgres shop directory), KERNEL web worker, AG Studio report agent, PayPal JS SDK in-page checkout, Render Workflows | Next |
 
 ## Repository
 
@@ -48,7 +49,8 @@ packages/outreach  the call rounds: quotes, the best quote, the confirmation cal
 packages/messaging texts: order, pickup code, the shop texting it back, receipts
 packages/agents    Claude: the planner and the contract extractor; Channel3; the shop directory
 packages/db        Postgres: migrations, errand repo, webhook event store
-apps/api           Fastify API: webhooks and live updates
+apps/api           Fastify API: webhooks, errands, the agent's tools
+apps/web           Next.js web app: new errand, mission control, shops
 scripts/day-one    checks against the sandbox and sponsor services
 scripts/voice      create the ElevenLabs agent from code; place a test call
 docs/              day-one checks guide
@@ -80,6 +82,12 @@ Day-one checks (copy `.env.example` to `.env` first; see [docs/day-one-checks.md
 
 ```bash
 npm run check:day-one
+```
+
+Web app, against a running API (`LEGWORK_API_URL`, and the same `LEGWORK_ADMIN_TOKEN`; `WEB_PASSCODE` puts a passcode in front of it):
+
+```bash
+npm run dev:web
 ```
 
 ### Deploy to Vercel (development)
