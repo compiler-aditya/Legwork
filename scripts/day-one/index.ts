@@ -5,6 +5,7 @@
  *   npm run check:day-one                      # every group, interactive
  *   npm run check:day-one -- --only=paypal     # one or more groups, comma-separated
  *   npm run check:day-one -- --call=+14155550100   # also place one real AI call
+ *   npm run check:day-one -- --only=paypal --order=<id>   # resume a hold the buyer already approved
  */
 import { existsSync } from 'node:fs';
 import { paypalChecks } from './paypal';

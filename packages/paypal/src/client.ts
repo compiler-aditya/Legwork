@@ -102,7 +102,9 @@ export class PayPalClient {
       let body: string | undefined;
       if (opts.rawBody !== undefined) body = opts.rawBody;
       else if (opts.body !== undefined) body = JSON.stringify(opts.body);
-      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      // PayPal answers 415 to a write without a JSON Content-Type, even one with
+      // no body (authorize, void, cancel a payout item).
+      if (body !== undefined || method !== 'GET') headers['Content-Type'] = 'application/json';
       if (opts.requestId) headers['PayPal-Request-Id'] = opts.requestId;
       if (opts.prefer) headers.Prefer = opts.prefer;
 

@@ -31,6 +31,10 @@ export function fakeFetch(responders: Responder[], tokenTtlSeconds = 32400) {
       return json(200, { access_token: `token-${tokens}`, expires_in: tokenTtlSeconds });
     }
     requests.push(req);
+    // Like PayPal: a write without a JSON Content-Type is refused, even with no body.
+    if (req.method !== 'GET' && req.headers['Content-Type'] !== 'application/json') {
+      return json(415, { name: 'UNSUPPORTED_MEDIA_TYPE', message: 'The request payload is not supported', debug_id: 'fake415' });
+    }
     const next = queue.shift();
     if (!next) throw new Error(`Unexpected request: ${req.method} ${url}`);
     return next(req);

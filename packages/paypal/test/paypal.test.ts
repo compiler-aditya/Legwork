@@ -5,6 +5,7 @@ import {
   PayPalClient,
   approveLink,
   authorizationOf,
+  authorizeOrder,
   captureAuthorization,
   cancelPayoutItem,
   createHoldOrder,
@@ -133,6 +134,22 @@ describe('orders and payments', () => {
     const body = JSON.parse(requests[0]?.body ?? '{}');
     expect(body.payment_source).toEqual({ paypal: { vault_id: 'tok_1' } });
     expect(authorizationOf(order)).toEqual({ id: 'AUTH2', status: 'CREATED' });
+  });
+
+  it('sends a JSON Content-Type on writes with no body, as PayPal requires', async () => {
+    const { pp, requests } = client([
+      () => json(201, { id: 'O1', status: 'COMPLETED' }),
+      () => json(204, undefined),
+      () => json(200, { payout_item_id: 'I1', transaction_status: 'RETURNED' }),
+    ]);
+    await authorizeOrder(pp, 'O1', 'lw-err_1-authorize');
+    await voidAuthorization(pp, 'AUTH1', 'lw-err_1-void');
+    await cancelPayoutItem(pp, 'I1');
+    for (const r of requests) {
+      expect(r.method).toBe('POST');
+      expect(r.headers['Content-Type']).toBe('application/json');
+      expect(r.body).toBeUndefined();
+    }
   });
 
   it('reads the vault id from an authorized order', () => {

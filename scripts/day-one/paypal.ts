@@ -71,28 +71,42 @@ export async function paypalChecks(run: Run): Promise<void> {
     return `item ${item.payout_item_id} was UNCLAIMED; batch ${batch}; item now ${cancelled.transaction_status ?? 'cancelled'}`;
   });
 
+  // --order=<id> resumes a hold the buyer already approved in an earlier run.
+  const resumeOrder = process.argv.find((a) => a.startsWith('--order='))?.slice('--order='.length);
   await run.check(GROUP, 'Budget hold that saves PayPal (one buyer approval)', async () => {
-    const order = await createHoldOrder(
-      pp,
-      {
-        amount: usd(4000),
-        referenceId: `check-${run.id}`,
-        description: 'Legwork day-one check: hold up to $40',
-        returnUrl: 'https://example.com/legwork/approved',
-        cancelUrl: 'https://example.com/legwork/cancelled',
-        savePayPal: true,
-      },
-      rid('hold'),
-    );
-    const link = approveLink(order);
-    if (!link) throw new Error(`No approve link on order ${order.id} (status ${order.status})`);
-    await waitForApproval(pp, order.id, link);
-    const authorized = await authorizeOrder(pp, order.id, rid('authorize'));
+    let orderId: string;
+    if (resumeOrder) {
+      orderId = resumeOrder;
+      const existing = await getOrder(pp, orderId);
+      if (existing.status !== 'APPROVED') {
+        const link = approveLink(existing);
+        if (!link) throw new Error(`Order ${orderId} is ${existing.status} and cannot be approved`);
+        await waitForApproval(pp, orderId, link);
+      }
+    } else {
+      const order = await createHoldOrder(
+        pp,
+        {
+          amount: usd(4000),
+          referenceId: `check-${run.id}`,
+          description: 'Legwork day-one check: hold up to $40',
+          returnUrl: 'https://example.com/legwork/approved',
+          cancelUrl: 'https://example.com/legwork/cancelled',
+          savePayPal: true,
+        },
+        rid('hold'),
+      );
+      const link = approveLink(order);
+      if (!link) throw new Error(`No approve link on order ${order.id} (status ${order.status})`);
+      orderId = order.id;
+      await waitForApproval(pp, orderId, link);
+    }
+    const authorized = await authorizeOrder(pp, orderId, rid('authorize'));
     const auth = authorizationOf(authorized);
-    if (!auth) throw new Error(`Order ${order.id} authorized but no authorization came back (status ${authorized.status})`);
+    if (!auth) throw new Error(`Order ${orderId} authorized but no authorization came back (status ${authorized.status})`);
     state.authId = auth.id;
-    state.vaultId = vaultIdOf(authorized) ?? vaultIdOf(await getOrder(pp, order.id));
-    return `order ${order.id}, authorization ${auth.id} ${auth.status} for ${auth.amount?.value ?? '?'} USD, expires ${auth.expiration_time ?? '?'}`;
+    state.vaultId = vaultIdOf(authorized) ?? vaultIdOf(await getOrder(pp, orderId));
+    return `order ${orderId}, authorization ${auth.id} ${auth.status} for ${auth.amount?.value ?? '?'} USD, expires ${auth.expiration_time ?? '?'}`;
   });
 
   await run.check(GROUP, 'Saved PayPal returned (vault id)', async () => {
