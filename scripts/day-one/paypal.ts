@@ -55,16 +55,19 @@ export async function paypalChecks(run: Run): Promise<void> {
     return `OAuth token issued by ${pp.baseUrl}`;
   });
 
-  // First, because it needs nobody: its payout webhooks reach the deployment while the hold waits for approval.
-  await run.check(GROUP, 'Cancel an unclaimed payout (shop cancelled after the deposit)', async () => {
+  // Runs alongside the hold check below, since it needs nobody: its webhooks
+  // reach the deployment while the hold waits for the buyer.
+  const unclaimed = run.check(GROUP, 'Cancel an unclaimed payout (shop cancelled after the deposit)', async () => {
     const receiver = `legwork-unclaimed-${run.id}@example.com`;
-    const item = await payOne(pp, run, 'unclaimed', { recipientType: 'EMAIL', receiver, amount: usd(100), senderItemId: rid('payout-unclaimed') });
+    const item = await step('creating the payout', () =>
+      payOne(pp, run, 'unclaimed', { recipientType: 'EMAIL', receiver, amount: usd(100), senderItemId: rid('payout-unclaimed') }),
+    );
     if (item.transaction_status !== 'UNCLAIMED') {
       throw new Error(`Expected UNCLAIMED for an address with no account, got ${item.transaction_status ?? 'no status'}`);
     }
     // PayPal cancels an item only once its whole batch has finished processing.
-    const batch = await waitForBatch(pp, item.batchId);
-    const cancelled = await cancelPayoutItem(pp, item.payout_item_id);
+    const batch = await step('waiting for the batch', () => waitForBatch(pp, item.batchId));
+    const cancelled = await step(`cancelling item ${item.payout_item_id}`, () => retry5xx(() => cancelPayoutItem(pp, item.payout_item_id)));
     return `item ${item.payout_item_id} was UNCLAIMED; batch ${batch}; item now ${cancelled.transaction_status ?? 'cancelled'}`;
   });
 
@@ -145,6 +148,8 @@ export async function paypalChecks(run: Run): Promise<void> {
     return tryWallets(pp, run, 'handle', { recipientType: 'USER_HANDLE', receiver: handle, amount: usd(100), senderItemId: rid('payout-handle') });
   });
 
+  await unclaimed;
+
   run.manual(
     GROUP,
     'Webhook signatures verify on a real delivery',
@@ -163,6 +168,27 @@ async function waitForApproval(pp: PayPalClient, orderId: string, link: string, 
     await sleep(5000);
   }
   throw new Error(`Order ${orderId} was not approved within ${minutes} minutes`);
+}
+
+/** Names the step in a failure, so "PayPal 500" says which call it was. */
+async function step<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw new Error(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Retries a call PayPal answered with a 5xx; the sandbox returns these now and then. */
+async function retry5xx<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!(err instanceof PayPalApiError) || err.status < 500 || i >= attempts) throw err;
+      await sleep(5000 * i);
+    }
+  }
 }
 
 /** Waits for a payout batch to reach a final status (SUCCESS, DENIED, CANCELED); returns it. */
