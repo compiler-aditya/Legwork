@@ -37,7 +37,8 @@ await writeFile(
       // Fastify reads the request stream itself; Vercel's body helpers would consume it first.
       shouldAddHelpers: false,
       shouldAddSourcemapSupport: true,
-      maxDuration: 60,
+      // The planner can take several tool turns at high effort.
+      maxDuration: 300,
     },
     null,
     2,

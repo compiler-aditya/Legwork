@@ -5,7 +5,7 @@ import { FakePayments, webhooks } from '@legwork/orchestrator/testing';
 import { OutreachEngine, type Caller } from '@legwork/outreach';
 import type { CallVariables } from '@legwork/voice';
 import { verifyCallToken } from '@legwork/voice';
-import { PgErrandRepo, PgOutreachStore, PgPickupStore, migrate } from '../src';
+import { PgErrandRepo, PgOutreachStore, PgPickupStore, PgShopDirectory, migrate } from '../src';
 import { openTestDatabase, type TestDatabase } from './harness';
 
 const SECRET = 'call-token-secret-of-at-least-32-chars!';
@@ -83,5 +83,20 @@ describe('PgPickupStore', () => {
     await pickups.save({ ...p, status: 'locked', wrongAttempts: 5 });
     expect(await pickups.openForShop('+14155550112')).toEqual([]);
     expect(await pickups.forErrand('err_pg_rounds')).toEqual([{ ...p, status: 'locked', wrongAttempts: 5 }]);
+  });
+});
+
+describe('PgShopDirectory', () => {
+  it('finds callable shops near the buyer, best match and closest first', async () => {
+    const dir = new PgShopDirectory(t.db);
+    await dir.upsert({ businessId: 'biz_dir_plumb', name: 'Valencia Plumbing', phone: '+14155550121', lat: 37.7612, lon: -122.4195, categories: ['plumbing', 'hardware'] });
+    await dir.upsert({ businessId: 'biz_dir_bake', name: 'Mission Bakery', phone: '+14155550122', lat: 37.7605, lon: -122.415, categories: ['bakery'] });
+    await dir.upsert({ businessId: 'biz_dir_far', name: 'Oakland Plumbing', phone: '+15105550123', lat: 37.8044, lon: -122.2712, categories: ['plumbing'], acceptsAiCalls: false });
+    const found = await dir.near({ lat: 37.7599, lon: -122.4148, radiusKm: 5, what: 'plumbing supply', limit: 5 });
+    expect(found.map((s) => s.businessId)).toEqual(['biz_dir_plumb', 'biz_dir_bake']);
+    expect(found[0]).toMatchObject({ name: 'Valencia Plumbing', phone: '+14155550121', categories: ['plumbing', 'hardware'], acceptsAiCalls: true, distanceKm: 0.4 });
+    // Updating keeps one row and changes its fields.
+    await dir.upsert({ businessId: 'biz_dir_plumb', name: 'Valencia Plumbing & Hardware', phone: '+14155550121', lat: 37.7612, lon: -122.4195, categories: ['plumbing'] });
+    expect((await dir.near({ lat: 37.7599, lon: -122.4148, radiusKm: 1, what: 'plumbing', limit: 5 }))[0]!.name).toBe('Valencia Plumbing & Hardware');
   });
 });

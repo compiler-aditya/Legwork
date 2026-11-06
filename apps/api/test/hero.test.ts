@@ -3,7 +3,6 @@ import { FakePayments, webhooks } from '@legwork/orchestrator/testing';
 import type { Caller } from '@legwork/outreach';
 import { signTwilio } from '@legwork/messaging';
 import { CALL_TOKEN_HEADER, signElevenLabsBody, type CallVariables } from '@legwork/voice';
-import type { MessagesApi } from '@legwork/agents';
 import { createApp } from '../src/app';
 
 const ADMIN = 'admin-token-for-tests';
@@ -53,7 +52,7 @@ async function setup() {
           notes: '',
         }) }],
       }),
-    } as unknown as MessagesApi,
+    } as unknown as NonNullable<Parameters<typeof createApp>[0]['anthropic']>,
     paypal: { payments, verify: async () => true },
     logger: false,
   });
@@ -88,7 +87,7 @@ async function setup() {
 describe('the hero errand over HTTP', () => {
   it('goes from a request to a settled errand, driven only by PayPal, the agent tools, post-call webhooks and texts', async () => {
     const t = await setup();
-    expect(t.status).toMatchObject({ errands: true, voice: true, texts: true, agents: true, calls: { enabled: true, allowlisted: 3 } });
+    expect(t.status).toMatchObject({ errands: true, voice: true, texts: true, agents: { planner: true, extractor: true }, calls: { enabled: true, allowlisted: 3 } });
 
     // 1. The buyer asks; the API returns PayPal's approve link for a $40 hold.
     const created = await t.app.inject({

@@ -4,3 +4,4 @@ export * from './errand-repo';
 export * from './event-store';
 export * from './outreach-store';
 export * from './pickup-store';
+export * from './shop-directory';

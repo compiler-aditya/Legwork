@@ -1,9 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { FastifyInstance } from 'fastify';
 import pg from 'pg';
-import { ContractExtractor, type MessagesApi } from '@legwork/agents';
+import { Channel3Products, ContractExtractor, MemoryShopDirectory, Planner, type BusinessInput, type ShopDirectory } from '@legwork/agents';
 import { needsReview, usd } from '@legwork/core';
-import { PgErrandRepo, PgEventStore, PgOutreachStore, PgPickupStore, migrate, pgDatabase, type Database } from '@legwork/db';
+import { PgErrandRepo, PgEventStore, PgOutreachStore, PgPickupStore, PgShopDirectory, migrate, pgDatabase, type Database } from '@legwork/db';
 import { MemoryPickupStore, PickupDesk, TwilioSms, type PickupStore, type Sms } from '@legwork/messaging';
 import { ErrandMoney, MemoryErrandRepo, paypalPayments, type ErrandRepo, type PaymentsPort } from '@legwork/orchestrator';
 import { MemoryOutreachStore, OutreachEngine, consentingOnly, type Caller, type OutreachStore } from '@legwork/outreach';
@@ -27,8 +27,8 @@ export interface AppStatus {
   errands: boolean;
   /** Texts through Twilio, and the webhook for shops texting back. */
   texts: boolean;
-  /** Claude: the contract extractor (ANTHROPIC_API_KEY). */
-  agents: boolean;
+  /** Claude (ANTHROPIC_API_KEY): the planner and the contract extractor; Channel3 product search for the planner. */
+  agents: { planner: boolean; extractor: boolean; productSearch: boolean };
 }
 
 export interface AppOptions {
@@ -43,8 +43,8 @@ export interface AppOptions {
   caller?: Caller;
   /** Replaces Twilio as the way texts are sent (tests). */
   sms?: Sms;
-  /** Replaces the Claude Messages API (tests). */
-  anthropic?: MessagesApi;
+  /** Replaces the Claude Messages API (tests: a real SDK client with a scripted fetch). */
+  anthropic?: Pick<Anthropic['beta']['messages'], 'create' | 'toolRunner'>;
   /** Replaces PayPal (tests): the calls, and the webhook signature check. */
   paypal?: { payments: PaymentsPort; verify: (headers: HeaderBag, rawBody: string) => Promise<boolean> };
   logger?: boolean;
@@ -66,6 +66,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
   let events: EventStore;
   let outreachStore: OutreachStore;
   let pickupStore: PickupStore;
+  let directory: ShopDirectory & { upsert(b: BusinessInput): Promise<void> };
   let migrationsApplied: string[] = [];
   const dbUrl = env.DATABASE_URL_UNPOOLED || env.DATABASE_URL;
   if (dbUrl) {
@@ -79,11 +80,13 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
     events = new PgEventStore(db);
     outreachStore = new PgOutreachStore(db);
     pickupStore = new PgPickupStore(db);
+    directory = new PgShopDirectory(db);
   } else {
     repo = new MemoryErrandRepo();
     events = new MemoryEventStore();
     outreachStore = new MemoryOutreachStore();
     pickupStore = new MemoryPickupStore();
+    directory = new MemoryShopDirectory();
   }
 
   // PayPal. The client works without a webhook id; webhooks need one.
@@ -163,6 +166,8 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
   // Claude reads each confirmation call into contract terms tied to its lines.
   const messagesApi = opts.anthropic ?? (env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages : undefined);
   const extractor = messagesApi ? new ContractExtractor(messagesApi) : undefined;
+  const products = env.CHANNEL3_API_KEY ? new Channel3Products(env.CHANNEL3_API_KEY) : undefined;
+  const planner = messagesApi ? new Planner(messagesApi, { shops: directory, ...(products ? { products } : {}) }) : undefined;
   const reviewConfirmation = async (outreachId: string | undefined) => {
     if (!extractor || !outreach || !outreachId) return;
     const row = await outreach.row(outreachId);
@@ -221,7 +226,7 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
     calls: { enabled: callsEnabled, allowlisted: allowlist.length },
     errands: errandRoutes,
     texts: textsIn || Boolean(opts.sms),
-    agents: Boolean(extractor),
+    agents: { planner: Boolean(planner), extractor: Boolean(extractor), productSearch: Boolean(products) },
   };
 
   const app = buildServer({
@@ -272,6 +277,8 @@ export async function createApp(opts: AppOptions): Promise<{ app: FastifyInstanc
       outreach: outreach!,
       desk: desk!,
       pickups: pickupStore,
+      directory,
+      ...(planner ? { planner } : {}),
       ensureUser: async (id, name) => {
         await db?.query(`INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [id, name]);
       },

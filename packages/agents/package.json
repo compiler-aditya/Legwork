@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The Claude parts of Legwork: the contract extractor (and next, the planner).",
+  "description": "The Claude parts of Legwork: the planner (request to call plan) and the contract extractor.",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
+    "@channel3/sdk": "^4.6.0",
     "@legwork/core": "*",
     "@legwork/voice": "*"
   }
