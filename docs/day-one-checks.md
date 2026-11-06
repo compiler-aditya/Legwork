@@ -54,3 +54,27 @@ The PayPal hold check prints a sandbox approval link and waits: open it, sign in
 | KERNEL | Cloud browser with live view | A browser starts and has an embeddable live view URL | Drop the web channel; calls still work |
 
 Checks marked TODO in the output need a person (webhook signatures on a real delivery, call monitoring and latency, the web app trials, Render Workflows).
+
+## Results so far
+
+### PayPal sandbox, 6 November 2026
+
+Run against the US business sandbox app, approved by a US-region sandbox **Personal** buyer, with webhooks delivered to the Vercel development deployment.
+
+| Check | Result |
+| --- | --- |
+| Credentials | Pass |
+| $40 budget hold that saves PayPal | Pass: authorization valid for 29 days; vault id returned |
+| $10 deposit then $24 balance from one hold | Pass: the final capture closed the hold and released the unused $6 |
+| Hold from saved PayPal with no buyer present, then void | Pass |
+| Webhook signatures on real deliveries | Pass: `CHECKOUT.ORDER.APPROVED`, `PAYMENT.AUTHORIZATION.CREATED` and `VOIDED`, `PAYMENT.CAPTURE.COMPLETED`, `VAULT.PAYMENT-TOKEN.CREATED`, `PAYMENT.PAYOUTS-ITEM.UNCLAIMED`, `PAYMENT.PAYOUTSBATCH.SUCCESS` all verified |
+| Cancel an unclaimed payout | Fail: the sandbox answers `500 INTERNAL_SERVICE_ERROR` to every cancel, for any recipient domain, even after the batch is `SUCCESS` (debug ids `f3370450017be`, `ca563176a8918`, `f844468886dbe`) |
+| Payouts to a sandbox email, a phone on Venmo, a Venmo handle | Not run yet: set `PAYPAL_TEST_PAYOUT_EMAIL`, `PAYPAL_TEST_PAYOUT_PHONE`, `PAYPAL_TEST_VENMO_HANDLE` |
+
+What the runs taught us, now in the code:
+
+- PayPal refuses any write without `Content-Type: application/json`, even one with no body (authorize, void, payout-item cancel): `415 UNSUPPORTED_MEDIA_TYPE`. The client always sends it now.
+- A payout item can be cancelled only once its whole batch has finished (`BATCH_NOT_COMPLETED`). If a cancel fails, the orchestrator still completes the shop cancellation and flags the payout for a person; an unclaimed payout returns to the sender after 30 days on its own.
+- `PAYMENT.PAYOUTS-ITEM.DENIED` is not a PayPal event; `FAILED` and `BLOCKED` are, and the webhook subscribes to them.
+- The buyer must be a sandbox **Personal** account (`…@personal.example.com`). Signing in with the Business account that owns the API keys fails with "This PayPal account is associated with the merchant". Use a private window if the browser is already signed in to the sandbox as the business. A sandbox buyer's test card can show as expired; any future expiry and any CVV work.
+- `--order=<id>` resumes an approved hold, so a failure after approval does not need a second approval.
